@@ -1,0 +1,85 @@
+# Release: whenever main gets a new <Version> in PdfAndMoore.csproj, GitHub builds
+# the single-file PdfAndMoore.exe (same settings as "Make EXE.bat") and posts it as a
+# Release (tag vX.Y.Z) with its SHA-256 fingerprint. Tools > Check for updates in the
+# app installs from the newest Release. Pushes that don't change the version are skipped.
+name: Release
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version and see if it's already released
+        id: ver
+        shell: pwsh
+        run: |
+          [xml]$proj = Get-Content PdfAndMoore/PdfAndMoore.csproj
+          $ver = ($proj.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1).Trim()
+          "version=$ver" >> $env:GITHUB_OUTPUT
+          gh release view "v$ver" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "v$ver is already released - nothing to do."
+            "skip=true" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "Releasing v$ver"
+            "skip=false" >> $env:GITHUB_OUTPUT
+          }
+          exit 0
+
+      - uses: actions/setup-dotnet@v4
+        if: steps.ver.outputs.skip == 'false'
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish single-file exe (same settings as Make EXE.bat)
+        if: steps.ver.outputs.skip == 'false'
+        run: >
+          dotnet publish PdfAndMoore/PdfAndMoore.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true
+          -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+          -p:DebugType=none -o out
+
+      - name: Fingerprint (SHA-256) for the updater's safety check
+        if: steps.ver.outputs.skip == 'false'
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash out/PdfAndMoore.exe -Algorithm SHA256).Hash.ToLower()
+          "$h  PdfAndMoore.exe" | Out-File -Encoding ascii out/PdfAndMoore.exe.sha256
+
+      - name: Release notes from CHANGELOG.md
+        if: steps.ver.outputs.skip == 'false'
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $lines = Get-Content CHANGELOG.md -Encoding utf8
+          $start = ($lines | Select-String -Pattern "^##\s+\[?v?$([regex]::Escape($ver))\b" | Select-Object -First 1).LineNumber
+          if ($start) {
+            $rest = $lines[$start..($lines.Count - 1)]
+            $end = ($rest | Select-String -Pattern '^##\s' | Select-Object -First 1).LineNumber
+            $notes = if ($end -gt 1) { $rest[0..($end - 2)] } elseif ($end -eq 1) { @("Version $ver") } else { $rest }
+          } else { $notes = @("Version $ver") }
+          $notes -join "`n" | Out-File -Encoding utf8 notes.md
+
+      - name: Create GitHub Release
+        if: steps.ver.outputs.skip == 'false'
+        run: >
+          gh release create "v${{ steps.ver.outputs.version }}"
+          out/PdfAndMoore.exe out/PdfAndMoore.exe.sha256
+          --target "${{ github.sha }}"
+          --title "PDF and Moore ${{ steps.ver.outputs.version }}"
+          --notes-file notes.md

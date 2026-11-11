@@ -1,0 +1,92 @@
+<Window x:Class="PdfAndMoore.UpdateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PDF and Moore - Updates"
+        Icon="Assets/app.ico"
+        Width="560" Height="480" MinWidth="440" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        ShowInTaskbar="False"
+        Background="#F9FBFD"
+        Foreground="#1F1F1F"
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        FontSize="13">
+    <Window.Resources>
+        <Style x:Key="PillButton" TargetType="Button">
+            <Setter Property="Padding" Value="18,7"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#0B57D0"/>
+            <Setter Property="BorderBrush" Value="#DADCE0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="18" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#140B57D0"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource PillButton}">
+            <Setter Property="Background" Value="#0B57D0"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#0842A0"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal">
+            <Image Source="Assets/app.png" Width="28" Height="28" Margin="0,0,10,0" VerticalAlignment="Center"/>
+            <TextBlock x:Name="HeadlineText" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" Text="Checking for updates…"/>
+        </StackPanel>
+        <TextBlock x:Name="VersionText" Grid.Row="1" Margin="0,6,0,14" Foreground="#5F6368" TextWrapping="Wrap"/>
+
+        <Border Grid.Row="2" Background="White" BorderBrush="#DADCE0" BorderThickness="1" CornerRadius="8" Padding="14">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <TextBlock x:Name="NotesText" TextWrapping="Wrap" LineHeight="20"/>
+            </ScrollViewer>
+        </Border>
+
+        <StackPanel Grid.Row="3" Margin="0,14,0,0">
+            <ProgressBar x:Name="DownloadProgress" Height="6" Minimum="0" Maximum="1" Visibility="Collapsed"
+                         Foreground="#0B57D0" Background="#D3E3FD" BorderThickness="0"/>
+            <TextBlock x:Name="StatusText" Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#5F6368"/>
+        </StackPanel>
+
+        <DockPanel Grid.Row="4" Margin="0,12,0,0" LastChildFill="False">
+            <CheckBox x:Name="AutoCheckBox" DockPanel.Dock="Left" VerticalAlignment="Center"
+                      Content="Check for updates when PDF and Moore starts"/>
+            <Button x:Name="UpdateButton" DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}"
+                    IsDefault="True" Content="Update now" Click="UpdateButton_Click"/>
+            <Button x:Name="LaterButton" DockPanel.Dock="Right" Style="{StaticResource PillButton}" Margin="0,0,8,0"
+                    IsCancel="True" Content="Later" Click="LaterButton_Click"/>
+            <Button x:Name="SkipButton" DockPanel.Dock="Right" Style="{StaticResource PillButton}" Margin="0,0,8,0"
+                    Content="Skip this version" Click="SkipButton_Click"/>
+        </DockPanel>
+    </Grid>
+</Window>

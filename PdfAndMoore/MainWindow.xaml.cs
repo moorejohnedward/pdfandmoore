@@ -95,11 +95,37 @@ public partial class MainWindow : Window
     /// <summary>Called by the bridge when the editor is ready for messages.</summary>
     internal void OnEditorReady()
     {
+        _ = CheckForUpdateQuietlyAsync();
         if (_startupFile != null)
         {
             if (!_startupAsPdf && OfficeTypes.EditorFor(_startupFile) != null) OpenInEditor(_startupFile);
             else _bridge?.SendEvent(_startupAsPdf ? "openPathAsPdf" : "openPath", _startupFile);
         }
+    }
+
+    private static bool _updateChecked;
+
+    /// <summary>Once per run, look for a newer version in the background and mention it in the editor.</summary>
+    private async Task CheckForUpdateQuietlyAsync()
+    {
+        if (_updateChecked || !UpdateService.CheckOnStartup) return;
+        _updateChecked = true;
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(4)); // let the editor settle first
+            var info = await UpdateService.CheckAsync();
+            if (info == null || UpdateService.IsSkipped(info)) return;
+            _bridge?.SendEvent("updateAvailable", new { version = info.Version.ToString(3) });
+        }
+        catch { } // offline: try again next time
+    }
+
+    /// <summary>Tools › Check for updates…</summary>
+    internal void ShowUpdates()
+    {
+        var open = Application.Current.Windows.OfType<UpdateWindow>().FirstOrDefault();
+        if (open != null) { open.Activate(); return; }
+        new UpdateWindow { Owner = this }.Show();
     }
 
     /// <summary>Edit a Word, Excel or PowerPoint file in the built-in editor (its own window).</summary>

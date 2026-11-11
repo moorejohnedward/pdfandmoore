@@ -27,6 +27,7 @@ public partial class App : Application
             return;
         }
 
+        UpdateService.CleanupAfterUpdate();
         FileAssociations.RefreshIfMoved();
 
         string? fileToOpen = e.Args.FirstOrDefault(a => File.Exists(a));
@@ -54,13 +55,37 @@ public partial class App : Application
         window.Show();
     }
 
+    /// <summary>After "Restart now" in the update window, start the new version as this one closes.</summary>
+    private void OnExit(object sender, ExitEventArgs e) => UpdateService.RelaunchIfRequested();
+
     private void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
+        string log = CrashLog.Write(e.Exception);
         MessageBox.Show(
-            "Something went wrong:\n\n" + e.Exception.Message,
+            "Something went wrong:\n\n" + e.Exception.Message +
+            (log.Length > 0 ? "\n\nThe details were saved to " + log + " (paste them to Claude to get it fixed)." : ""),
             "PDF and Moore",
             MessageBoxButton.OK,
             MessageBoxImage.Error);
         e.Handled = true;
+    }
+}
+
+/// <summary>Keeps a record of errors in %LOCALAPPDATA%\PdfAndMoore\crash.log so they can be fixed.</summary>
+internal static class CrashLog
+{
+    public static string Write(Exception ex)
+    {
+        try
+        {
+            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PdfAndMoore");
+            Directory.CreateDirectory(dir);
+            string file = Path.Combine(dir, "crash.log");
+            File.AppendAllText(file,
+                $"PDF and Moore {UpdateService.CurrentVersion.ToString(3)}, {DateTime.Now:yyyy-MM-dd HH:mm:ss}, {Environment.OSVersion}\r\n" +
+                ex + "\r\n" + new string('-', 60) + "\r\n");
+            return file;
+        }
+        catch { return ""; }
     }
 }

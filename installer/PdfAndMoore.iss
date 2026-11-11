@@ -3,7 +3,7 @@
 ; and (optionally) registers PDF, Word, Excel and PowerPoint files for "Open with" / Default apps.
 
 #define MyAppName "PDF and Moore"
-#define MyAppVersion "8.0"
+#define MyAppVersion "8.1"
 #define MyAppExe "PDF and Moore.exe"
 
 [Setup]

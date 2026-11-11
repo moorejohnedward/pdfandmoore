@@ -2,6 +2,16 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v8.1.0 — Wednesday, November 11, 2026
+**Updates from inside the app**
+- **Tools › Check for updates…** shows what's new in the latest version, then downloads, checks and installs it with one click. No more running Make EXE.bat for each new version.
+- When a new version is out, a note appears a few seconds after the app opens. "Skip this version" and an on/off switch for the startup check are in the update window.
+- The new version starts the next time PDF and Moore opens, or right away with **Restart now**. Restart closes windows the normal way, so you're still asked to save changes.
+- Your current version is only replaced after the download passes its safety check (SHA-256 fingerprint). If anything fails, the old version stays. A copy installed in Program Files asks Windows for permission once to update.
+- Errors are now also saved to %LOCALAPPDATA%\PdfAndMoore\crash.log so they can be fixed.
+- The project now lives on GitHub (github.com/moorejohnedward/pdfandmoore). Every new version is built there automatically.
+- New code: `Services/UpdateService.cs`, `UpdateWindow`, `.github/workflows/` (build check and release).
+
 ## v8 — Sunday, November 8, 2026 (night)
 **Built-in Word, Excel and PowerPoint editors — no Google, everything stays on your PC**
 - Replaces v7's Google editing. Word, Excel and PowerPoint files now open in PDF and Moore's own editors, each in its own window with a colored title bar (blue = document, green = spreadsheet, orange = presentation), **Save**, **Save as…**, **Print** and **Open as PDF**. Ctrl+S / Ctrl+Shift+S / Ctrl+P work. Closing with unsaved changes asks first.

@@ -488,6 +488,7 @@ function menus() {
       ['ink_highlighter', 'Highlight text', () => setTool('highlight'), 'H', needDoc],
       ['-'],
       ['app_registration', 'Make PDF and Moore my default app…', () => hostCmd('setDefaultApp'), ''],
+      ['system_update', 'Check for updates…', () => hostCmd('checkUpdates'), ''],
       ['settings', 'Settings…', settingsDialog, ''],
     ],
     Form: [
@@ -1445,6 +1446,7 @@ async function main() {
   // Messages from the Windows app (files opened from Explorer, "Open with", closing with unsaved changes).
   host.onHostEvent('openPath', (p) => openPath(p));
   host.onHostEvent('openPathAsPdf', (p) => openPath(p, { asPdf: true }));
+  host.onHostEvent('updateAvailable', (d) => toast(`PDF and Moore ${d && d.version} is ready to install: Tools › Check for updates…`, { ms: 12000 }));
   host.onHostEvent('saveBeforeClose', async () => {
     const ok = await save(false);
     if (ok) host.setDirty(false, APP);

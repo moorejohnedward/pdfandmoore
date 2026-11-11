@@ -236,6 +236,13 @@ public sealed class HostBridge
             case "setDefaultApp":
                 return FileAssociations.Register(openSettings: true);
 
+            case "checkUpdates":
+                _window.ShowUpdates();
+                return null;
+
+            case "appVersion":
+                return UpdateService.CurrentVersion.ToString(3);
+
             default:
                 throw new NotSupportedException("Unknown command: " + cmd);
         }

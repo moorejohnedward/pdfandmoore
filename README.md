@@ -3,6 +3,13 @@
 A Windows PDF editor with Google Docs–style controls and Claude built in.
 It's a C# / WPF project for Visual Studio 2022.
 
+## Updates (v8.1 and later)
+
+PDF and Moore updates itself: **Tools › Check for updates…** downloads, checks and installs
+the newest version from this repository's Releases page. Every new version is built automatically
+by GitHub Actions when the version number in `PdfAndMoore/PdfAndMoore.csproj` goes up, so you only
+need `Make EXE.bat` for your very first copy (or to build changes on your own PC).
+
 ## Get the app (.exe)
 
 1. **Install Visual Studio 2022** (Community is free). In the installer, tick the
