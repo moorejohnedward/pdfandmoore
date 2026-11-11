@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PDF and Moore</title>
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="icon" href="img/app.png" />
+    <script src="lib/pdf-lib.min.js"></script>
+    <script src="lib/fontkit.umd.min.js"></script>
+    <script src="lib/tesseract/tesseract.min.js"></script>
+    <script src="lib/mammoth.browser.min.js"></script>
+    <script src="lib/xlsx.full.min.js"></script>
+    <script src="lib/jszip.min.js"></script>
+    <script src="lib/docx.umd.js"></script>
+  </head>
+  <body data-tool="select" data-form-mode="fill" class="no-doc">
+    <!-- Title bar + menus (Google Docs style) -->
+    <header class="topbar">
+      <img class="app-logo" src="img/app.png" alt="" title="PDF and Moore" />
+      <div class="title-block">
+        <div class="title-row">
+          <input id="docTitle" class="doc-title" value="PDF and Moore" spellcheck="false" aria-label="Document name" />
+          <span id="saveState" class="save-state"></span>
+        </div>
+        <nav id="menubar" class="menubar" aria-label="Main menu"></nav>
+      </div>
+      <div class="top-actions">
+        <button id="btnClaudeTop" class="btn btn-tonal claude-btn" title="Ask Claude (Ctrl+J)"><span class="ms">auto_awesome</span><span>Ask Claude</span></button>
+        <button id="btnSave" class="btn btn-primary save-btn" title="Save (Ctrl+S)"><span class="ms">save</span><span>Save</span></button>
+        <button id="btnSettings" class="icon-btn" title="Settings"><span class="ms">settings</span></button>
+      </div>
+    </header>
+
+    <!-- Ribbon: colorful tabs of big, labeled tools -->
+    <div class="ribbon-wrap">
+      <div id="ribbonTabs" class="ribbon-tabs" role="tablist"></div>
+      <div id="ribbon" class="ribbon" role="toolbar" aria-label="Tools"></div>
+    </div>
+
+    <!-- Tell it what to change -->
+    <div class="command-wrap">
+      <div class="command-bar" id="commandBar">
+        <span class="ms cmd-spark">auto_awesome</span>
+        <input id="commandInput" autocomplete="off" spellcheck="true" placeholder="Tell PDF and Moore what to change…  e.g. “add today's date next to Date”  or  “delete page 2”" />
+        <span id="commandEngine" class="cmd-engine" title="Which AI helps when a request needs one"></span>
+        <button id="commandGo" class="cmd-go" title="Do it (Enter)"><span class="ms">arrow_forward</span></button>
+      </div>
+      <div id="commandPop" class="command-pop"></div>
+    </div>
+
+    <!-- Shown when something on the page is selected -->
+    <div id="contextBar" class="context-bar"></div>
+
+    <main class="workspace">
+      <aside id="sidebar" class="sidebar">
+        <div class="sidebar-head"><span>Pages</span><button class="icon-btn small" id="btnOrganize" title="Organize pages"><span class="ms">grid_view</span></button></div>
+        <div id="thumbs" class="thumbs"></div>
+      </aside>
+
+      <section id="viewer" class="viewer" tabindex="-1">
+        <div id="pageList" class="page-list"></div>
+        <div id="startScreen" class="start-screen"></div>
+      </section>
+
+      <aside id="sidepanel" class="sidepanel">
+        <div class="panel-tabs">
+          <button class="panel-tab active" data-panel="claude"><span class="ms">auto_awesome</span>Claude</button>
+          <button class="panel-tab" data-panel="form"><span class="ms">assignment</span>Form</button>
+          <button class="panel-tab" data-panel="comments"><span class="ms">forum</span>Comments</button>
+          <button class="icon-btn small panel-close" id="btnClosePanel" title="Close panel"><span class="ms">close</span></button>
+        </div>
+        <div class="panel-body" data-body="claude">
+          <div id="claudeAccount" class="claude-account"></div>
+          <div id="claudeChat" class="claude-chat"></div>
+          <div id="claudeChips" class="chips"></div>
+          <div class="claude-input-row">
+            <textarea id="claudeInput" rows="1" placeholder="Ask, or tell me what to change or make…"></textarea>
+            <button id="claudeSend" class="icon-btn send-btn" title="Send"><span class="ms">arrow_upward</span></button>
+          </div>
+        </div>
+        <div class="panel-body hidden" data-body="form"><div id="formPanel" class="form-panel"></div></div>
+        <div class="panel-body hidden" data-body="comments"><div id="commentsPanel" class="comments-panel"></div></div>
+      </aside>
+    </main>
+
+    <!-- Page counter & zoom (bottom) -->
+    <div id="pageCounter" class="page-counter"></div>
+
+    <!-- Find bar -->
+    <div id="findBar" class="find-bar">
+      <span class="ms">search</span>
+      <input id="findInput" placeholder="Find in document" />
+      <span id="findCount" class="muted"></span>
+      <button class="icon-btn small" id="findPrev" title="Previous"><span class="ms">keyboard_arrow_up</span></button>
+      <button class="icon-btn small" id="findNext" title="Next"><span class="ms">keyboard_arrow_down</span></button>
+      <button class="icon-btn small" id="findClose" title="Close"><span class="ms">close</span></button>
+    </div>
+
+    <!-- Floating menu shown when text is selected -->
+    <div id="selMenu" class="sel-menu">
+      <button data-act="highlight" title="Highlight"><span class="ms" style="color: #f9ab00">ink_highlighter</span></button>
+      <button data-act="underline" title="Underline"><span class="ms">format_underlined</span></button>
+      <button data-act="strike" title="Strikethrough"><span class="ms">strikethrough_s</span></button>
+      <button data-act="redact" title="Mark for redaction (removes it for good when applied)"><span class="ms" style="color: #d93025">ink_eraser</span></button>
+      <span class="sep"></span>
+      <button data-act="copy" title="Copy"><span class="ms">content_copy</span></button>
+      <button data-act="claude" title="Ask Claude about this"><span class="ms">auto_awesome</span>Ask Claude</button>
+    </div>
+
+    <div id="organizer" class="organizer"></div>
+    <div id="dropHint" class="drop-hint"><span class="ms">upload_file</span><div>Drop files to open them</div></div>
+    <div id="busy" class="busy"><div class="busy-box"><div class="spinner"></div><div id="busyText">Working…</div><div class="busy-bar"><div id="busyProgress"></div></div></div></div>
+    <div id="toast" class="toast" role="status"></div>
+    <div id="printArea" class="print-area"></div>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>

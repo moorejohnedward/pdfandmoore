@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Spreadsheet - PDF and Moore</title>
+  <link rel="stylesheet" href="lib/sheet.css" />
+  <link rel="stylesheet" href="office.css" />
+</head>
+<body>
+  <!-- Spreadsheets are edited with FortuneSheet + FortuneExcel (MIT). Older formats are converted with SheetJS. -->
+  <script src="lib/sheet.js"></script>
+  <script src="../lib/xlsx.full.min.js"></script>
+  <script src="office.js"></script>
+  <script>
+    (function () {
+      let sheet = null;
+      let isCsv = false;
+      const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+      OfficeShell.start({
+        kind: 'sheet',
+        print: false,
+        saveExt: (orig) => (orig === 'csv' ? 'csv' : 'xlsx'),
+        async mount(container, api) {
+          const host = document.createElement('div');
+          host.style.cssText = 'position:absolute;inset:0';
+          container.append(host);
+          sheet = await MooreSheet.mount(host, { onChange: () => api.markDirty() });
+        },
+        async load(bytes, name, ext) {
+          isCsv = ext === 'csv';
+          if (ext === 'xlsx' || ext === 'xlsm' || ext === 'csv') {
+            await sheet.load(new File([bytes], ext === 'xlsm' ? name.replace(/\.xlsm$/i, '.xlsx') : name, { type: isCsv ? 'text/csv' : XLSX_MIME }));
+            return ext === 'xlsm' ? { notice: 'This workbook has macros. You can edit it here, but saving makes a .xlsx copy without the macros.' } : null;
+          }
+          // .xls, .xlsb, .ods, .tsv: convert to .xlsx first (values, formulas and sheet layout come across; most formatting doesn't).
+          const wb = XLSX.read(bytes, { type: 'array', cellFormula: true, cellStyles: true });
+          const xlsx = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+          const newName = name.replace(/\.[^.]+$/, '') + '.xlsx';
+          await sheet.load(new File([xlsx], newName, { type: XLSX_MIME }));
+          return { notice: `This .${ext} file was converted so it can be edited. Saving creates a new .xlsx file (some formatting may be simplified).` };
+        },
+        async blank() {
+          // the editor starts with an empty sheet
+        },
+        async save(ext) {
+          const blob = await sheet.exportBlob(ext === 'csv' ? 'csv' : 'xlsx');
+          return new Uint8Array(await blob.arrayBuffer());
+        },
+      });
+    })();
+  </script>
+</body>
+</html>

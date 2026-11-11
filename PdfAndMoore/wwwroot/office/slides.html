@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Presentation - PDF and Moore</title>
+  <link rel="stylesheet" href="lib/slides.css" />
+  <link rel="stylesheet" href="office.css" />
+</head>
+<body>
+  <!-- Presentations are opened with pptxtojson and saved with PptxGenJS (both MIT). -->
+  <script src="lib/slides.js"></script>
+  <script src="office.js"></script>
+  <script>
+    (function () {
+      let ms = null;
+      OfficeShell.start({
+        kind: 'slides',
+        print: true,
+        saveExt: () => 'pptx',
+        mount(container, api) {
+          const host = document.createElement('div');
+          host.style.cssText = 'position:absolute;inset:0';
+          container.append(host);
+          ms = MooreSlides.mount(host, { onChange: () => api.markDirty() });
+        },
+        async load(bytes, name, ext) {
+          const info = await ms.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+          const parts = [];
+          if (ext !== 'pptx') parts.push(`This is a .${ext} file; saving makes a .pptx copy.`);
+          if (info.warnings && info.warnings.length) parts.push(`This file has ${info.warnings.join(', ')}, which can't be edited here and won't be kept when you save.`);
+          parts.push('Animations and transitions aren’t kept when you save. The original is backed up the first time you save.');
+          return { notice: parts.join(' ') };
+        },
+        blank() {
+          ms.newBlank();
+        },
+        async save() {
+          return ms.exportPptx();
+        },
+        beforePrint(area) {
+          ms.buildPrintView(area);
+        },
+      });
+    })();
+  </script>
+</body>
+</html>

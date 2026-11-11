@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Document - PDF and Moore</title>
+  <link rel="stylesheet" href="lib/superdoc.min.css" />
+  <link rel="stylesheet" href="office.css" />
+</head>
+<body>
+  <!-- Word documents are edited with SuperDoc (open source, AGPL-3.0, superdoc.dev). -->
+  <script src="lib/superdoc.min.js"></script>
+  <script src="../lib/docx.umd.js"></script>
+  <script src="office.js"></script>
+  <script>
+    (function () {
+      let sd = null;
+      let shellApi = null;
+
+      function open(file) {
+        return new Promise((resolve, reject) => {
+          if (sd) { try { sd.destroy && sd.destroy(); } catch (e) {} }
+          const wrap = document.querySelector('.word-wrap');
+          wrap.innerHTML = '<div id="sd-toolbar"></div><div id="sd-doc"></div>';
+          const SD = window.SuperDoc.SuperDoc || window.SuperDoc;
+          sd = new SD({
+            selector: '#sd-doc',
+            toolbar: '#sd-toolbar',
+            document: file,
+            documentMode: 'editing',
+            telemetry: { enabled: false },
+            user: { name: 'Me', email: 'me@pdfandmoore.local' },
+            onReady: () => resolve(),
+            onEditorUpdate: () => shellApi && shellApi.markDirty(),
+            onException: (e) => reject(new Error((e && e.error && e.error.message) || 'The document could not be opened.')),
+          });
+        });
+      }
+
+      async function blankDocx() {
+        const D = window.docx;
+        const doc = new D.Document({
+          styles: { default: { document: { run: { font: 'Calibri', size: 22 } } } },
+          sections: [{ properties: {}, children: [new D.Paragraph('')] }],
+        });
+        return D.Packer.toBlob(doc);
+      }
+
+      OfficeShell.start({
+        kind: 'word',
+        print: true,
+        saveExt: () => 'docx',
+        mount(container, api) {
+          shellApi = api;
+          container.innerHTML = '<div class="word-wrap"></div>';
+        },
+        async load(bytes, name, ext) {
+          await open(new File([bytes], name.replace(/\.(docm|dotx)$/i, '.docx'), { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+          if (ext !== 'docx') {
+            return { notice: `This is a .${ext} file. Saving makes a .docx copy (macros and template settings aren't kept).` };
+          }
+          return null;
+        },
+        async blank() {
+          const blob = await blankDocx();
+          await open(new File([blob], 'Untitled.docx', { type: blob.type }));
+        },
+        async save() {
+          const blob = await sd.export({ triggerDownload: false });
+          return new Uint8Array(await blob.arrayBuffer());
+        },
+      });
+    })();
+  </script>
+</body>
+</html>
