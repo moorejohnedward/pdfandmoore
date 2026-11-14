@@ -66,16 +66,51 @@ public static class UpdateService
         return c;
     }
 
-    /// <summary>Call once at startup: removes the old .exe left behind by the last update.</summary>
+    /// <summary>Call once at startup: removes the old .exe(s) left behind by earlier updates.</summary>
+    /// <remarks>
+    /// Runs in the background. Right after "Restart now" the previous copy is often still closing,
+    /// and Windows reports a running .exe as "access denied" (not "in use"), so keep retrying for a
+    /// while instead of giving up on the first try. Anything that still can't be removed is left
+    /// alone; the next update moves it aside instead of failing (see MoveAside).
+    /// </remarks>
     public static void CleanupAfterUpdate()
     {
-        var old = CurrentExePath + ".old";
-        for (int i = 0; i < 10 && File.Exists(old); i++)
+        _ = Task.Run(async () =>
         {
-            try { File.Delete(old); }
-            catch (UnauthorizedAccessException) { break; } // Program Files copy; harmless to leave
-            catch { Thread.Sleep(300); }                   // the previous copy may still be closing
-        }
+            for (int attempt = 0; attempt < 40; attempt++) // about 30 seconds
+            {
+                var left = OldCopies().Where(f => !TryDelete(f)).ToList();
+                if (left.Count == 0) return;
+                await Task.Delay(750).ConfigureAwait(false);
+            }
+        });
+    }
+
+    /// <summary>Leftovers from earlier updates: "&lt;name&gt;.exe.old" and "&lt;name&gt;.exe.old-*".</summary>
+    private static IEnumerable<string> OldCopies()
+    {
+        var exe = CurrentExePath;
+        var dir = Path.GetDirectoryName(exe);
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return Array.Empty<string>();
+        try { return Directory.GetFiles(dir, Path.GetFileName(exe) + ".old*"); }
+        catch { return Array.Empty<string>(); }
+    }
+
+    private static bool TryDelete(string file)
+    {
+        try { File.Delete(file); return !File.Exists(file); }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Gets "&lt;name&gt;.exe.old" out of the way. If it can't be deleted (an older copy is still
+    /// running, or antivirus is scanning it), rename it to a unique name instead. Windows allows
+    /// renaming a running .exe, so this works where deleting doesn't.
+    /// </summary>
+    private static void MoveAside(string oldFile)
+    {
+        if (!File.Exists(oldFile) || TryDelete(oldFile)) return;
+        File.Move(oldFile, oldFile + "-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"));
     }
 
     /// <summary>Returns the newest release if it's newer than this copy, otherwise null.</summary>
@@ -162,7 +197,7 @@ public static class UpdateService
         // 3) Swap: rename the running exe out of the way, move the new one in
         try
         {
-            if (File.Exists(oldFile)) File.Delete(oldFile);
+            MoveAside(oldFile);
             File.Move(exe, oldFile);
             try { File.Move(download, exe); }
             catch { File.Move(oldFile, exe); throw; } // put the original back if anything went wrong
@@ -181,6 +216,7 @@ public static class UpdateService
         string script =
             $"$ErrorActionPreference='Stop'; " +
             $"if (Test-Path -LiteralPath {Q(oldFile)}) {{ Remove-Item -LiteralPath {Q(oldFile)} -Force -ErrorAction SilentlyContinue }}; " +
+            $"if (Test-Path -LiteralPath {Q(oldFile)}) {{ Rename-Item -LiteralPath {Q(oldFile)} -NewName ((Split-Path -Leaf {Q(oldFile)}) + '-' + (Get-Date -Format 'yyyyMMdd-HHmmss')) -Force }}; " +
             $"Move-Item -LiteralPath {Q(exe)} -Destination {Q(oldFile)} -Force; " +
             $"try {{ Copy-Item -LiteralPath {Q(download)} -Destination {Q(exe)} -Force }} " +
             $"catch {{ Move-Item -LiteralPath {Q(oldFile)} -Destination {Q(exe)} -Force; exit 1 }}";
