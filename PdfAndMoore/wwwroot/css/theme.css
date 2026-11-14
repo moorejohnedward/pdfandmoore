@@ -1,0 +1,183 @@
+/* =====================================================================
+   PDF and Moore v9 — Moore look: fun colors, big easy buttons, dark theme
+   Loaded after app.css. Two switches on <html>:
+     data-theme = "dark" (default) | "light"
+     data-size  = "normal" | "large" (default) | "xl"
+   PDF pages, thumbnails and fillable fields stay white so documents look right.
+   ===================================================================== */
+
+:root {
+  /* Fun accent colors used in both themes */
+  --coral: #ff7a59;
+  --coral-2: #ff9a6b;
+  --ocean: #2bb3d9;
+  --sun: #ffc845;
+  --lime: #3fc28a;
+  --grape: #9b6bff;
+  --pink: #ff5fa2;
+  --claude: #d97757;
+  --fun-gradient: linear-gradient(135deg, var(--coral), var(--pink) 55%, var(--grape));
+  --sea-gradient: linear-gradient(135deg, var(--ocean), var(--grape));
+
+  --primary-btn: var(--coral);
+  --primary-btn-text: #ffffff;
+}
+
+/* ---------- Primary buttons: bold and colorful everywhere ---------- */
+.btn-primary { background: var(--fun-gradient); color: #fff; box-shadow: 0 2px 8px rgba(255, 122, 89, 0.35); }
+.btn-primary:hover { background: var(--fun-gradient); filter: brightness(1.07); box-shadow: 0 3px 12px rgba(255, 95, 162, 0.4); }
+.cmd-go { background: var(--sea-gradient); }
+.send-btn { background: var(--sea-gradient); }
+.send-btn:hover { background: var(--sea-gradient); filter: brightness(1.1); }
+
+/* =====================================================================
+   DARK THEME
+   ===================================================================== */
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0f1b2d;
+  --surface: #16253a;
+  --surface-2: #1e3150;
+  --surface-3: #25395b;
+  --toolbar: #1e3150;
+  --hover: rgba(255, 255, 255, 0.07);
+  --press: rgba(255, 255, 255, 0.12);
+  --text: #eaf1f8;
+  --text-2: #c9d6e3;
+  --muted: #8fa6bd;
+  --line: #2a3f5c;
+  --blue: #5ab8ff;
+  --blue-soft: #1f3d63;
+  --danger: #ff6b6b;
+  --green: #4cc38a;
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+html[data-theme='dark'] body { background: var(--bg); color: var(--text); }
+
+/* Every floating card, menu and panel gets the dark surface */
+html[data-theme='dark'] :is(
+  .menu-pop, .note-popup, .sidepanel, .start-tile, .recent-list, .chip, .field, .page-counter, .sel-menu,
+  .find-bar, .org-bar, .busy-box, .rtab.active, .ribbon, .rselect, .rnum, .command-pop, .signin-card,
+  .modal, .tb-num, .context-bar
+) {
+  background-color: var(--surface);
+  color: var(--text);
+}
+html[data-theme='dark'] .doc-title:focus { background: var(--surface); }
+html[data-theme='dark'] .field, html[data-theme='dark'] .rselect, html[data-theme='dark'] .rnum, html[data-theme='dark'] .tb-num { border-color: var(--line); }
+html[data-theme='dark'] select.field option, html[data-theme='dark'] .rselect option { background: var(--surface); color: var(--text); }
+html[data-theme='dark'] .busy { background: rgba(6, 12, 22, 0.6); }
+html[data-theme='dark'] .modal-backdrop { background: rgba(4, 9, 18, 0.66); }
+html[data-theme='dark'] :is(.recent-row, .claude-account) { border-color: var(--line); }
+html[data-theme='dark'] .chips { border-top-color: var(--line); }
+html[data-theme='dark'] .rgroup { border-right-color: var(--line); }
+html[data-theme='dark'] .rtab:hover { background: rgba(255, 255, 255, 0.06); }
+html[data-theme='dark'] .rtab.active { box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.4); }
+html[data-theme='dark'] .ribbon { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); }
+html[data-theme='dark'] .rb .rb-icon { background: color-mix(in srgb, var(--tab) 24%, var(--surface)); color: color-mix(in srgb, var(--tab) 70%, white); }
+html[data-theme='dark'] .rb.active .rb-icon { background: var(--tab); color: #fff; }
+html[data-theme='dark'] .rb.active .rb-label, html[data-theme='dark'] .rtab.active { color: color-mix(in srgb, var(--tab) 65%, white); }
+html[data-theme='dark'] .rtab .ms { color: color-mix(in srgb, var(--tab) 75%, white); }
+html[data-theme='dark'] .menu-item:disabled { color: #5c6f86; }
+html[data-theme='dark'] .menu-item:disabled .ms { color: #4b5d73; }
+html[data-theme='dark'] :is(.tb-btn.active, .chip.active, .seg-btn.active, .ctx-btn.on) { color: #fff; }
+html[data-theme='dark'] .seg, html[data-theme='dark'] .seg-btn + .seg-btn { border-color: #4a5d75; }
+html[data-theme='dark'] .btn-tonal { background: var(--surface-2); color: var(--text); }
+html[data-theme='dark'] .btn-tonal:hover { background: var(--surface-3); }
+html[data-theme='dark'] .btn-text { color: var(--blue); }
+html[data-theme='dark'] .btn-text:hover { background: rgba(90, 184, 255, 0.1); }
+html[data-theme='dark'] .command-bar {
+  background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(90deg, var(--ocean), var(--grape), var(--pink), var(--sun));
+  box-shadow: 0 2px 14px rgba(43, 179, 217, 0.15);
+}
+html[data-theme='dark'] .command-bar input { color: var(--text); }
+html[data-theme='dark'] .example { background: #26244a; border-color: #3b3770; color: #ddd5ff; }
+html[data-theme='dark'] .example:hover { background: #312e5e; }
+html[data-theme='dark'] .msg.web-note { background: #2a2418; border-color: #4a3d22; }
+html[data-theme='dark'] :is(.claude-logo, .signin-icon) { background: #3a2620; }
+html[data-theme='dark'] .signin-card.active { background: #1b2c44; }
+html[data-theme='dark'] .drop-hint { background: rgba(31, 61, 99, 0.92); color: var(--text); }
+html[data-theme='dark'] .start-tile .tile-art { background: var(--surface-2); }
+html[data-theme='dark'] .start-tile:hover { border-color: var(--ocean); }
+html[data-theme='dark'] .restore-grid img { background: #0b1422; }
+html[data-theme='dark'] .thumb.current { background: rgba(90, 184, 255, 0.1); }
+html[data-theme='dark'] .tb-sep { background: var(--line); }
+html[data-theme='dark'] .hint.warn { color: var(--sun); }
+html[data-theme='dark'] .toast { background: #26394f; color: #fff; }
+html[data-theme='dark'] .page { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55); }
+html[data-theme='dark'] ::-webkit-scrollbar { width: 12px; height: 12px; }
+html[data-theme='dark'] ::-webkit-scrollbar-thumb { background: #2f4767; border-radius: 8px; border: 3px solid var(--bg); }
+html[data-theme='dark'] ::-webkit-scrollbar-track { background: transparent; }
+html[data-theme='dark'] input::placeholder, html[data-theme='dark'] textarea::placeholder { color: #6f86a0; }
+
+/* =====================================================================
+   BIG, EASY-TO-READ CONTROLS (data-size large = default, xl = extra)
+   ===================================================================== */
+html:not([data-size='normal']) body { font-size: 15px; }
+html:not([data-size='normal']) .btn { padding: 10px 20px; font-size: 15px; border-radius: 22px; }
+html:not([data-size='normal']) .btn .ms { font-size: 20px; }
+html:not([data-size='normal']) .btn.small { padding: 6px 12px; font-size: 13.5px; }
+html:not([data-size='normal']) .icon-btn { width: 44px; height: 44px; }
+html:not([data-size='normal']) .icon-btn .ms { font-size: 23px; }
+html:not([data-size='normal']) .icon-btn.small { width: 34px; height: 34px; }
+html:not([data-size='normal']) .menu-top { font-size: 15px; padding: 5px 10px; }
+html:not([data-size='normal']) .menu-item { font-size: 15px; padding: 9px 20px 9px 14px; }
+html:not([data-size='normal']) .menu-item .ms { font-size: 22px; width: 22px; }
+html:not([data-size='normal']) .doc-title { font-size: 19px; }
+html:not([data-size='normal']) .rtab { font-size: 15px; padding: 9px 18px 10px; }
+html:not([data-size='normal']) .rtab .ms { font-size: 22px; }
+html:not([data-size='normal']) .rb { min-width: 74px; font-size: 13px; padding: 7px 8px 6px; }
+html:not([data-size='normal']) .rb .rb-icon { width: 46px; height: 46px; border-radius: 14px; }
+html:not([data-size='normal']) .rb .rb-icon .ms { font-size: 27px; }
+html:not([data-size='normal']) .rb-label { max-width: 86px; }
+html:not([data-size='normal']) .rgroup-title { font-size: 12px; }
+html:not([data-size='normal']) .ribbon { min-height: 112px; }
+html:not([data-size='normal']) .command-bar input { font-size: 16px; padding: 10px 0; }
+html:not([data-size='normal']) .cmd-go { width: 42px; height: 42px; }
+html:not([data-size='normal']) .panel-tab { font-size: 14.5px; padding: 10px 12px 12px; }
+html:not([data-size='normal']) .modal-title { font-size: 24px; }
+html:not([data-size='normal']) .modal-body { font-size: 15px; }
+html:not([data-size='normal']) .field { padding: 10px 12px; font-size: 15px; border-radius: 10px; }
+html:not([data-size='normal']) .field-label { font-size: 14px; }
+html:not([data-size='normal']) .chip { font-size: 13.5px; padding: 6px 12px 6px 9px; }
+html:not([data-size='normal']) .start-tile .tile-label { font-size: 15.5px; }
+html:not([data-size='normal']) .start-tile .tile-sub { font-size: 13px; }
+html:not([data-size='normal']) .start-hero h1 { font-size: 30px; }
+html:not([data-size='normal']) .context-bar { top: 262px; }
+html:not([data-size='normal']) .find-bar { top: 124px; }
+html:not([data-size='normal']) .toast { font-size: 15px; padding: 14px 20px; }
+
+/* Extra large: the app's own controls grow; the document itself is untouched */
+html[data-size='xl'] :is(.topbar, .ribbon-wrap, .command-wrap, .sidepanel, .start-screen, .mail-view, .modal, .app-switch) { zoom: 1.14; }
+
+/* ---------- Ribbon tabs: brighter colors ---------- */
+.rtab.active::after { height: 4px; }
+
+/* =====================================================================
+   App switcher: Documents | Mail (top bar)
+   ===================================================================== */
+.app-switch {
+  display: inline-flex; gap: 4px; padding: 4px; border-radius: 26px; background: var(--surface-2); margin-right: 6px; flex: none;
+}
+.app-switch button {
+  display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 22px; padding: 9px 18px; background: none;
+  font-size: 15px; font-weight: 600; color: var(--text-2);
+}
+.app-switch button .ms { font-size: 22px; font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24; }
+.app-switch button:hover { background: var(--hover); }
+.app-switch button.on { color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
+.app-switch button[data-app='docs'].on { background: linear-gradient(135deg, var(--ocean), #2f7de1); }
+.app-switch button[data-app='mail'].on { background: var(--fun-gradient); }
+.app-switch .badge {
+  min-width: 20px; height: 20px; border-radius: 10px; padding: 0 6px; font-size: 12px; display: inline-grid; place-items: center;
+  background: var(--sun); color: #3b2a00;
+}
+.app-switch button.on .badge { background: rgba(255, 255, 255, 0.92); color: #a23b1e; }
+
+/* In Mail mode the document chrome steps aside */
+body.app-mail :is(.ribbon-wrap, .command-wrap, .workspace, .page-counter, .context-bar, .find-bar, .sel-menu, #menubar, .save-btn, .save-state, #btnClaudeTop, .title-block) { display: none !important; }
+body.app-mail #docTitle { pointer-events: none; }
+body:not(.app-mail) .mail-view { display: none; }
+body.app-mail .top-actions { margin-left: auto; }

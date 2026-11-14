@@ -3,6 +3,19 @@
 A Windows PDF editor with Google Docs–style controls and Claude built in.
 It's a C# / WPF project for Visual Studio 2022.
 
+## Mail (v9 and later)
+
+PDF and Moore has a **Mail** tab (top left, or Ctrl+2): one inbox for all your email accounts and business addresses,
+with Claude to write, rewrite, sort, summarize and suggest replies. Set it up in **Settings › Email**:
+
+1. In each Google account, turn on 2-Step Verification and make an **app password** at
+   <https://myaccount.google.com/apppasswords> (for a Google Workspace account an admin may need to allow it).
+2. In Gmail on the web: ⚙ › See all settings › Forwarding and POP/IMAP › **Enable IMAP**.
+3. Add each alias once in Gmail › ⚙ › See all settings › Accounts › **Send mail as** (otherwise Gmail sends from the main address).
+4. In PDF and Moore: **Settings › Email › Edit** the account, paste the app password, press **Save & test**.
+
+**Email it** on the Home ribbon sends the open PDF as an attachment. Dark/Light and button size are in **Settings › Look & feel**.
+
 ## Updates (v8.1 and later)
 
 PDF and Moore updates itself: **Tools › Check for updates…** downloads, checks and installs
@@ -143,6 +156,8 @@ PdfAndMoore/
       ├─ newdoc.js     Lays out complete fillable forms from a plan (title, sections, fields, tables)
       └─ newdocui.js   Opens new forms; your saved logo
       └─ localai.js    Free on-device AI (WebLLM)
+      └─ mail.js       Mail tab: inbox, reader, compose, Claude writing/sorting
+      └─ settings.js   The Settings window (look & feel, AI, email, updates)
 ```
 
 **How C# and the UI talk:** the UI calls `host.js`, which sends a JSON message
@@ -153,11 +168,13 @@ and posts back `{ type: "reply", id, ok, result }`. Claude replies stream back a
 
 **Libraries** (included in `wwwroot/lib`, all free/open source): PDF.js (Mozilla), pdf-lib (and the @cantoo/pdf-lib fork for password locking),
 Tesseract.js (OCR), UTIF + pako (TIFF), heic2any (iPhone photos), Mammoth (Word), SheetJS (Excel), docx, JSZip, WebLLM (on-device AI), Material Symbols icons.
+Email: MailKit and MimeKit (MIT, NuGet package).
 
 See **CHANGELOG.md** for what changed in each version.
 
 ## Keyboard shortcuts
 
+Ctrl+1 Documents · Ctrl+2 Mail · Ctrl+, Settings · Ctrl+Enter send email ·
 Ctrl+O open · Ctrl+S save · Ctrl+Shift+S save as · Ctrl+P print · Ctrl+Z / Ctrl+Y undo/redo ·
 Ctrl+F find · Ctrl+J AI panel · / type a command · V select · T text · E edit text · H highlight · U underline ·
 D draw · R rectangle · A arrow · L line · W whiteout · C comment · G grab text · Ctrl+D duplicate ·

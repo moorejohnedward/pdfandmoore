@@ -39,6 +39,20 @@ body.has-notice #editor { top: 76px; }
 #sd-doc .superdoc { justify-content: center; }
 #sd-doc .superdoc__layers { margin: 16px auto; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
 
+/* v9: dark surroundings (documents themselves stay white) and bigger title-bar buttons */
+html[data-theme='dark'], html[data-theme='dark'] body { background: #0f1b2d; }
+html[data-theme='dark'] #sd-doc { background: #0f1b2d; }
+html[data-theme='dark'] #sd-doc .superdoc__layers { box-shadow: 0 2px 14px rgba(0,0,0,.6); }
+html[data-theme='dark'] .ob-busy { background: rgba(6,12,22,.7); color: #eaf1f8; }
+html[data-theme='dark'] { --accent: #2f6fd6; --accent-dark: #1e3f73; }
+html[data-theme='dark'] body.kind-sheet { --accent: #1f9d5a; --accent-dark: #185634; }
+html[data-theme='dark'] body.kind-slides { --accent: #e0562f; --accent-dark: #9c3016; }
+html:not([data-size='normal']) .ob { height: 52px; font-size: 14px; }
+html:not([data-size='normal']) .ob-btn { height: 36px; padding: 0 14px; font-size: 14px; border-radius: 18px; }
+html:not([data-size='normal']) .ob-ic { font-size: 21px; }
+html:not([data-size='normal']) #editor { top: 52px; }
+html:not([data-size='normal']) body.has-notice #editor { top: 84px; }
+
 @media print {
   html, body { overflow: visible !important; height: auto !important; background: #fff; }
   .ob, .ob-notice, .ob-toast, .ob-busy, #sd-toolbar { display: none !important; }

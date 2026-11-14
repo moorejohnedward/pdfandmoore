@@ -109,8 +109,8 @@ public sealed class MailService
         var part = message.Attachments.ElementAtOrDefault(index) ?? throw new InvalidOperationException("That attachment wasn't found.");
         string name = part.ContentDisposition?.FileName ?? part.ContentType.Name ?? $"attachment-{index + 1}";
         using var ms = new MemoryStream();
-        if (part is MessagePart rfc822) await rfc822.Message.WriteToAsync(ms, ct);
-        else if (part is MimePart mp) await mp.Content.DecodeToAsync(ms, ct);
+        if (part is MessagePart rfc822 && rfc822.Message != null) await rfc822.Message.WriteToAsync(ms, ct);
+        else if (part is MimePart mp && mp.Content != null) await mp.Content.DecodeToAsync(ms, ct);
         return (name, ms.ToArray());
     }
 
@@ -170,6 +170,7 @@ public sealed class MailService
     {
         try
         {
+            if (part.Content == null) return 0;
             using var ms = new MemoryStream();
             part.Content.DecodeTo(ms);
             return ms.Length;

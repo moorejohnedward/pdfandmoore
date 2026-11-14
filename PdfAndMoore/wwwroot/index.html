@@ -4,7 +4,18 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PDF and Moore</title>
+    <script>
+      // Theme and size before the first paint (v9). Default: dark, large buttons.
+      (function () {
+        var p = {};
+        try { p = JSON.parse(localStorage.getItem('pam.ui') || '{}'); } catch (e) {}
+        document.documentElement.dataset.theme = p.theme === 'light' ? 'light' : 'dark';
+        document.documentElement.dataset.size = p.textSize || 'large';
+      })();
+    </script>
     <link rel="stylesheet" href="css/app.css" />
+    <link rel="stylesheet" href="css/theme.css" />
+    <link rel="stylesheet" href="css/mail.css" />
     <link rel="icon" href="img/app.png" />
     <script src="lib/pdf-lib.min.js"></script>
     <script src="lib/fontkit.umd.min.js"></script>
@@ -18,6 +29,10 @@
     <!-- Title bar + menus (Google Docs style) -->
     <header class="topbar">
       <img class="app-logo" src="img/app.png" alt="" title="PDF and Moore" />
+      <div class="app-switch" id="appSwitch" role="tablist" aria-label="Switch between documents and email">
+        <button data-app="docs" class="on" title="Documents (Ctrl+1)"><span class="ms">description</span><span>Documents</span></button>
+        <button data-app="mail" title="Mail (Ctrl+2)"><span class="ms">mail</span><span>Mail</span><span id="mailBadge" class="badge hidden"></span></button>
+      </div>
       <div class="title-block">
         <div class="title-row">
           <input id="docTitle" class="doc-title" value="PDF and Moore" spellcheck="false" aria-label="Document name" />
@@ -83,6 +98,9 @@
         <div class="panel-body hidden" data-body="comments"><div id="commentsPanel" class="comments-panel"></div></div>
       </aside>
     </main>
+
+    <!-- Mail tab (v9): built by js/mail.js -->
+    <section id="mailView" class="mail-view" aria-label="Mail"></section>
 
     <!-- Page counter & zoom (bottom) -->
     <div id="pageCounter" class="page-counter"></div>

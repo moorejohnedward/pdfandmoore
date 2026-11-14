@@ -41,3 +41,21 @@ Each entry records what was built, why, and the concepts behind it. CHANGELOG.md
 **Result:** after this one build, new versions arrive from inside the app.
 
 ---
+
+## 2026-11-13: v9.0, Mail tab + Dark theme
+
+**Problem:** The Gmail connector in Claude only works with one account at a time, and I send from three business addresses plus a personal one. I wanted one place to read and send from all of them with Claude helping, and I wanted PDF and Moore easier to read (bigger buttons, dark mode).
+
+**Built**
+- **Mail inside PDF and Moore** instead of a separate app, so documents and email share one window, one look, one settings screen and one updater. "Email it" sends the open PDF; PDF attachments open in the editor.
+- **IMAP/SMTP with MailKit** (`Services/MailService.cs`): reads the inbox, downloads a message when it's opened, marks it read, sends with attachments and proper reply threading (In-Reply-To / References headers).
+- **App passwords instead of OAuth:** no Google Cloud project to set up and no weekly sign-in expiry for an unverified app. Passwords are encrypted with DPAPI and never cross the bridge to JavaScript; the page only sees `hasPassword`.
+- **Sorting pipeline:** deterministic rules first (which alias it was sent to, then keyword rules), AI classification second, cached in localStorage so each message is classified once. Cheap, fast and predictable.
+- **AI features reuse the app's AI layer** (`askOnce` in claude.js), so Mail works with the API key, the free on-device model, or the Claude-account copy/paste mode.
+- **Security:** HTML email is rendered in a sandboxed iframe (no scripts) with a Content-Security-Policy that blocks remote images until the user allows them.
+- **Theming with CSS custom properties:** a `data-theme` attribute swaps the color variables; a `data-size` attribute scales controls. Set before first paint from localStorage, saved by the host in `ui.json` so WPF windows match.
+- Fixed `el()` so CSS variables passed in `style` actually apply (they need `style.setProperty`), which also fixed the ribbon tab colors. Nested dialogs now only answer keys when they're on top.
+- **Testing without Windows:** the web UI was exercised in headless Chrome with a fake WebView2 host, and the C# compiled on GitHub Actions on a `mail` branch before release.
+
+**Concepts:** email protocols (IMAP, SMTP, MIME, message threading), secure secret storage, sandboxing untrusted HTML, Content Security Policy, CSS custom properties and theming, rules-then-AI classification with caching, feature branches and CI.
+

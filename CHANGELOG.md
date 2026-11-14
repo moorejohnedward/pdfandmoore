@@ -2,6 +2,19 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.0.0 — Friday, November 13, 2026
+**Mail is built in, plus a new dark look with big, easy buttons**
+- **Mail tab:** switch between **Documents** and **Mail** at the top left (Ctrl+1 / Ctrl+2). One inbox for every account and business address, color-coded by account, with an unread count on the Mail button. Times show in military time (1750).
+- **Send as any address:** the From box lists every alias (Kona Hydrostatic Testing, Dive Moore LLC, Vintage Scuba Museum of the Pacific, personal), and the right signature is added automatically. Replies go out from the address the email was sent to.
+- **Smart folders:** KHT, Dive Moore, Museum, Business, School, Personal, Newsletters, plus **All business**, **Needs reply** and **Unsorted**. Your keyword rules sort mail for free and always win. **Smart Sort** has Claude sort the rest (each email is sorted once, then remembered). "Move to…" fixes anything by hand.
+- **Claude in Mail:** **Write it** (tell it what to say), one-click rewrites (Make it professional, Friendlier, Shorter, More detail, Fix spelling & grammar, Aloha touch) with **Undo Claude**, **Pick for me** (chooses the right business address), **Summarize**, and **Suggest replies** (three ready-to-edit replies). Works with whichever AI you chose in Settings.
+- **Works with documents:** **Email it** on the Home ribbon (and File › Email this PDF…) sends the open PDF as an attachment. PDF and picture attachments open straight into the editor with **Open**. Drop files on the window while writing an email to attach them.
+- **Safe email viewing:** HTML emails show in a locked-down frame with no scripts, and pictures stay hidden (no tracking pixels) until you click **Show pictures**.
+- **New look:** **Dark theme** by default (Light is one click away), brighter colors on the ribbon and buttons, and bigger buttons and text. Settings › Look & feel has Normal, Large (default) and Extra large. PDF pages always stay white. The Word, Excel and PowerPoint windows and the update window follow the theme too.
+- **One Settings window** (gear button or Ctrl+,): Look & feel, AI assistant, Email (accounts, app passwords with a step-by-step guide, aliases, signatures, smart folders, keyword rules) and Updates (check now, check at start-up).
+- App passwords are stored encrypted with Windows DPAPI in %APPDATA%\PdfAndMoore\mail.json and are never shown to the web page.
+- New code: `Services/MailService.cs`, `MailModels.cs`, `MailSettingsStore.cs`, `UiPrefs.cs`, `wwwroot/js/mail.js`, `settings.js`, `wwwroot/css/theme.css`, `mail.css`. New package: MailKit 4.18.1 (MIT).
+
 ## v8.1.0 — Wednesday, November 11, 2026
 **Updates from inside the app**
 - **Tools › Check for updates…** shows what's new in the latest version, then downloads, checks and installs it with one click. No more running Make EXE.bat for each new version.

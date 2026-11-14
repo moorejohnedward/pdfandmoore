@@ -18,6 +18,8 @@ import { findAnnot } from './state.js';
 import * as protect from './protect.js';
 import * as newdocui from './newdocui.js';
 import * as restore from './restore.js';
+import * as mail from './mail.js';
+import { openSettings, initLook } from './settings.js';
 
 const APP = 'PDF and Moore';
 
@@ -414,6 +416,8 @@ function menus() {
       ['compress', 'Smaller PDF (reduce file size)…', compressDialog, '', needDoc],
       ['-'],
       ['print', 'Print', printDoc, 'Ctrl+P', needDoc],
+      ['forward_to_inbox', 'Email this PDF…', emailDoc, '', needDoc],
+      ['mail', 'Go to Mail', () => setApp('mail'), 'Ctrl+2'],
       ['-'],
       ['close', 'Close document', closeDocument, '', needDoc],
     ],
@@ -489,7 +493,7 @@ function menus() {
       ['-'],
       ['app_registration', 'Make PDF and Moore my default app…', () => hostCmd('setDefaultApp'), ''],
       ['system_update', 'Check for updates…', () => hostCmd('checkUpdates'), ''],
-      ['settings', 'Settings…', settingsDialog, ''],
+      ['settings', 'Settings…', () => openSettings(), ''],
     ],
     Form: [
       ['edit_note', 'Fill in form', () => (setFormMode('fill'), showPanel('form')), '', needDoc],
@@ -630,12 +634,12 @@ let ribbonTab = 'home';
 
 function ribbonTabs() {
   return [
-    { id: 'home', label: 'Home', color: '#0b57d0', icon: 'home' },
-    { id: 'edit', label: 'Edit', color: '#1a73e8', icon: 'edit_document' },
-    { id: 'draw', label: 'Mark up', color: '#e8710a', icon: 'brush' },
-    { id: 'forms', label: 'Forms', color: '#188038', icon: 'assignment' },
-    { id: 'pages', label: 'Pages', color: '#9334e6', icon: 'auto_stories' },
-    { id: 'protect', label: 'Protect', color: '#c5221f', icon: 'shield_lock' },
+    { id: 'home', label: 'Home', color: '#1e9bd0', icon: 'home' },
+    { id: 'edit', label: 'Edit', color: '#4f7bff', icon: 'edit_document' },
+    { id: 'draw', label: 'Mark up', color: '#ff7a59', icon: 'brush' },
+    { id: 'forms', label: 'Forms', color: '#22a874', icon: 'assignment' },
+    { id: 'pages', label: 'Pages', color: '#9b6bff', icon: 'auto_stories' },
+    { id: 'protect', label: 'Protect', color: '#f0475f', icon: 'shield_lock' },
     { id: 'ai', label: 'AI', color: '#d97757', icon: 'auto_awesome' },
   ];
 }
@@ -714,7 +718,7 @@ function ribbonContent(tab) {
   switch (tab) {
     case 'home':
       return [
-        group('File', rb('folder_open', 'Open', openDialog, { needsDoc: false }), rb('save', 'Save', () => save(false)), rb('print', 'Print', printDoc)),
+        group('File', rb('folder_open', 'Open', openDialog, { needsDoc: false }), rb('save', 'Save', () => save(false)), rb('print', 'Print', printDoc), rb('forward_to_inbox', 'Email it', emailDoc, { title: 'Send this PDF as an email attachment' })),
         group('Undo', rb('undo', 'Undo', () => undo()), rb('redo', 'Redo', () => redo())),
         group('Pointer', rb('arrow_selector_tool', 'Select', null, { tool: 'select', title: 'Select and move things (V)' }), rb('pan_tool', 'Hand', null, { tool: 'hand', title: 'Drag to scroll (hold Space)' })),
         group('View', el('div', { class: 'rstack' }, zoom, el('div', { class: 'rrow' }, rb('zoom_out', 'Smaller', () => setZoom(state.zoom / 1.2), { big: false }), rb('zoom_in', 'Bigger', () => setZoom(state.zoom * 1.2), { big: false })))),
@@ -1210,7 +1214,8 @@ async function renderStart() {
     el(
       'div',
       { class: 'start-tiles' },
-      tile('folder_open', '#0b57d0', 'Open a file', 'PDF, Word, Excel, images, and more', openDialog),
+      tile('folder_open', '#2bb3d9', 'Open a file', 'PDF, Word, Excel, images, and more', openDialog),
+      tile('mail', '#ff5fa2', 'Check email', 'Every account and business address in one inbox', () => setApp('mail')),
       tile('note_add', '#188038', 'Blank PDF', 'Start from an empty page', newBlank),
       tile('merge', '#9334e6', 'Combine files', 'Merge several files into one PDF', combineDialog),
       tile('auto_awesome', '#e37400', 'Make a form from a description', 'Describe it; get a finished fillable PDF', newFormDialog),
@@ -1243,6 +1248,7 @@ async function renderStart() {
 // ---------------------------------------------------------------------------
 function shortcutsDialog() {
   const rows = [
+    ['Ctrl+1 / Ctrl+2', 'Documents / Mail'], ['Ctrl+,', 'Settings'], ['Ctrl+Enter', 'Send the email you are writing'],
     ['Ctrl+O', 'Open'], ['Ctrl+S', 'Save'], ['Ctrl+Shift+S', 'Save as'], ['Ctrl+P', 'Print'], ['Ctrl+Z / Ctrl+Y', 'Undo / Redo'],
     ['Ctrl+F', 'Find'], ['Ctrl+J', 'Show/hide side panel (Claude)'], ['Ctrl + mouse wheel', 'Zoom'], ['Ctrl+0', 'Actual size'],
     ['V', 'Select'], ['T', 'Add text'], ['E', 'Edit existing text'], ['H', 'Highlight'], ['U', 'Underline'], ['D', 'Draw'],
@@ -1261,8 +1267,8 @@ function aboutDialog() {
     body: el(
       'div',
       {},
-      el('p', {}, 'A PDF editor with Google Docs–style controls and Claude as your assistant.'),
-      el('p', { class: 'muted' }, 'Built with PDF.js (Mozilla), pdf-lib, Tesseract OCR, Mammoth, SheetJS and docx. Word editor: SuperDoc (AGPL-3.0). Spreadsheet editor: FortuneSheet and FortuneExcel (MIT). Slide editor: pptxtojson and PptxGenJS (MIT). Windows app: C# / WPF with Microsoft Edge WebView2.')
+      el('p', {}, 'A PDF editor, Word/Excel/PowerPoint editors and email in one app, with Claude as your assistant.'),
+      el('p', { class: 'muted' }, 'Built with PDF.js (Mozilla), pdf-lib, Tesseract OCR, Mammoth, SheetJS and docx. Word editor: SuperDoc (AGPL-3.0). Spreadsheet editor: FortuneSheet and FortuneExcel (MIT). Slide editor: pptxtojson and PptxGenJS (MIT). Email: MailKit and MimeKit (MIT). Windows app: C# / WPF with Microsoft Edge WebView2.')
     ),
   });
 }
@@ -1278,6 +1284,10 @@ function typingInField(e) {
 function onKey(e) {
   const ctrl = e.ctrlKey || e.metaKey;
   const k = e.key.toLowerCase();
+  if (ctrl && k === '1') return e.preventDefault(), setApp('docs');
+  if (ctrl && k === '2') return e.preventDefault(), setApp('mail');
+  if (ctrl && k === ',') return e.preventDefault(), openSettings();
+  if (document.body.classList.contains('app-mail') || document.body.classList.contains('composing') || document.querySelector('.modal-backdrop')) return;
   if (ctrl && k === 'o') return e.preventDefault(), openDialog();
   if (ctrl && k === 's') return e.preventDefault(), save(e.shiftKey);
   if (ctrl && k === 'p') return e.preventDefault(), printDoc();
@@ -1357,6 +1367,8 @@ function initDrop() {
     document.body.classList.remove('dragging-files');
     const files = [];
     for (const f of e.dataTransfer.files) files.push({ name: f.name, path: null, bytes: new Uint8Array(await f.arrayBuffer()) });
+    if (mail.composeAttach(files)) return;
+    if (document.body.classList.contains('app-mail')) return mail.composeMail({ attachments: files });
     if (state.doc) {
       const r = await dialog({
         title: 'Open dropped files',
@@ -1375,9 +1387,37 @@ function initDrop() {
 }
 
 // ---------------------------------------------------------------------------
+// Documents | Mail (v9)
+// ---------------------------------------------------------------------------
+function setApp(app) {
+  const isMail = app === 'mail';
+  document.body.classList.toggle('app-mail', isMail);
+  $$('#appSwitch button').forEach((b) => b.classList.toggle('on', b.dataset.app === app));
+  closeMenus();
+  if (isMail) mail.onShow();
+}
+
+/** Email the open document as a PDF attachment. */
+async function emailDoc() {
+  if (!state.doc) return;
+  busy('Getting the PDF ready to send…');
+  let bytes;
+  try {
+    ({ bytes } = await buildPdf(state.doc));
+  } catch (e) {
+    busy(false);
+    return toast('Could not make the PDF: ' + (e.message || e), { error: true });
+  }
+  busy(false);
+  const name = docFileName('pdf');
+  await mail.composeMail({ subject: baseName(name), attachments: [{ name, bytes }] });
+}
+
+// ---------------------------------------------------------------------------
 // Start up
 // ---------------------------------------------------------------------------
 async function main() {
+  await initLook();
   initViewer($('#viewer'));
   initThumbnails();
   initForms();
@@ -1402,7 +1442,15 @@ async function main() {
   on('structure', () => textCache.clear());
 
   $('#btnSave').addEventListener('click', () => save(false));
-  $('#btnSettings').addEventListener('click', settingsDialog);
+  $('#btnSettings').addEventListener('click', () => openSettings());
+  $$('#appSwitch button').forEach((b) => b.addEventListener('click', () => setApp(b.dataset.app)));
+  window.addEventListener('pam:settings', (e) => openSettings(e.detail || 'look'));
+  mail.initMail({
+    openFile: async (f) => {
+      setApp('docs');
+      await openFiles([{ name: f.name, path: null, bytes: f.bytes }]);
+    },
+  }).catch((e) => console.error(e));
   $('#btnClaudeTop').addEventListener('click', () => showPanel('claude'));
   $('#btnOrganize').addEventListener('click', openOrganizer);
   $('#btnClosePanel').addEventListener('click', togglePanel);

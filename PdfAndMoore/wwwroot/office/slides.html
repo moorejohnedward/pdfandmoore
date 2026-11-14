@@ -4,6 +4,12 @@
   <meta charset="utf-8" />
   <title>Presentation - PDF and Moore</title>
   <link rel="stylesheet" href="lib/slides.css" />
+  <script>
+    // v9: same theme and size as the main window (Dark by default).
+    (function () { var p = {}; try { p = JSON.parse(localStorage.getItem('pam.ui') || '{}'); } catch (e) {}
+      document.documentElement.dataset.theme = p.theme === 'light' ? 'light' : 'dark';
+      document.documentElement.dataset.size = p.textSize || 'large'; })();
+  </script>
   <link rel="stylesheet" href="office.css" />
 </head>
 <body>

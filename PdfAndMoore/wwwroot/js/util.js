@@ -5,7 +5,14 @@ export function el(tag, attrs = {}, ...children) {
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v === undefined || v === null || v === false) continue;
     if (k === 'class') node.className = v;
-    else if (k === 'style' && typeof v === 'object') Object.assign(node.style, v);
+    else if (k === 'style' && typeof v === 'object') {
+      // CSS variables (like --tab) need setProperty; Object.assign silently ignores them.
+      for (const [prop, val] of Object.entries(v)) {
+        if (val === undefined || val === null) continue;
+        if (prop.startsWith('--')) node.style.setProperty(prop, val);
+        else node.style[prop] = val;
+      }
+    }
     else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'html') node.innerHTML = v;
     else node.setAttribute(k, v === true ? '' : v);
@@ -70,6 +77,8 @@ export function dialog({ title, body, buttons = [{ label: 'OK', value: true, pri
       resolve(v);
     };
     const onKey = (e) => {
+      // With a dialog opened from another dialog, only the top one answers keys.
+      if ([...document.querySelectorAll('.modal-backdrop')].pop() !== backdrop) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
         close(null);

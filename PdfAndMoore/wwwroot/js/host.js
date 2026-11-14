@@ -286,3 +286,55 @@ export async function signCms(thumbprint, bytes) {
   if (window.__testSigner) return base64ToBytes(await window.__testSigner.sign(thumbprint, bytesToBase64(bytes)));
   throw new Error(NEEDS_APP);
 }
+
+// ---------- Look & feel, updates (v9) ----------
+export async function getUiPrefs() {
+  if (!webview) {
+    try { return JSON.parse(localStorage.getItem('pam.ui') || '{}'); } catch { return {}; }
+  }
+  return callHost('getUiPrefs');
+}
+export async function setUiPrefs(prefs) {
+  try { localStorage.setItem('pam.ui', JSON.stringify(prefs)); } catch {}
+  if (!webview) return true;
+  return callHost('setUiPrefs', prefs);
+}
+export async function getUpdatePrefs() {
+  if (!webview) return { checkOnStartup: true };
+  return callHost('getUpdatePrefs');
+}
+export async function setUpdatePrefs(prefs) {
+  if (!webview) return true;
+  return callHost('setUpdatePrefs', prefs);
+}
+export async function appVersion() {
+  if (!webview) return 'browser';
+  return callHost('appVersion');
+}
+
+// ---------- Mail (v9) ----------
+// Passwords never come back from the host; each account only has hasPassword.
+// To set one, send the account with newPassword filled in.
+const NEEDS_APP_MAIL = 'Email works in the PDF and Moore Windows app.';
+function mailCall(cmd, args) {
+  if (!webview) return Promise.reject(new Error(NEEDS_APP_MAIL));
+  return callHost(cmd, args);
+}
+export const mail = {
+  getSettings: () => (webview ? callHost('mailGetSettings') : Promise.resolve(null)),
+  saveSettings: (settings) => mailCall('mailSaveSettings', { json: JSON.stringify(settings) }),
+  test: (accountId) => mailCall('mailTest', { accountId }),
+  fetch: (accountId = null) => mailCall('mailFetch', accountId ? { accountId } : {}),
+  message: (accountId, uid) => mailCall('mailMessage', { accountId, uid }),
+  attachment: async (accountId, uid, index) => {
+    const res = await mailCall('mailAttachment', { accountId, uid, index });
+    return { name: res.name, bytes: base64ToBytes(res.base64) };
+  },
+  saveAttachment: (accountId, uid, index) => mailCall('mailSaveAttachment', { accountId, uid, index }),
+  /** attachments: [{name, bytes}] */
+  send: ({ accountId, from, to, cc, bcc, subject, body, attachments = [], inReplyTo = null, references = [] }) =>
+    mailCall('mailSend', {
+      accountId, from, to, cc, bcc, subject, body, inReplyTo, references,
+      attachments: attachments.map((a) => ({ name: a.name, base64: bytesToBase64(a.bytes) })),
+    }),
+};

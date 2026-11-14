@@ -13,6 +13,7 @@ public partial class UpdateWindow : Window
     public UpdateWindow(UpdateInfo? found = null)
     {
         InitializeComponent();
+        ApplyLook();
         AutoCheckBox.IsChecked = UpdateService.CheckOnStartup;
         AutoCheckBox.Checked += (_, _) => UpdateService.CheckOnStartup = true;
         AutoCheckBox.Unchecked += (_, _) => UpdateService.CheckOnStartup = false;
@@ -130,5 +131,30 @@ public partial class UpdateWindow : Window
     {
         if (_info != null) UpdateService.Skip(_info);
         Close();
+    }
+
+    /// <summary>v9: match the app's Dark theme and bigger text.</summary>
+    private void ApplyLook()
+    {
+        var prefs = UiPrefs.Load();
+        if (prefs.TextSize != "normal") FontSize = 14.5;
+        if (!prefs.IsDark) return;
+        static System.Windows.Media.SolidColorBrush B(string hex) =>
+            new((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex));
+        Background = B("#0F1B2D");
+        Foreground = B("#EAF1F8");
+        NotesBorder.Background = B("#16253A");
+        NotesBorder.BorderBrush = B("#2A3F5C");
+        VersionText.Foreground = B("#8FA6BD");
+        StatusText.Foreground = B("#8FA6BD");
+        AutoCheckBox.Foreground = B("#C9D6E3");
+        UpdateButton.Background = B("#FF7A59");
+        foreach (var b in new[] { LaterButton, SkipButton })
+        {
+            b.Foreground = B("#5AB8FF");
+            b.BorderBrush = B("#2A3F5C");
+        }
+        DownloadProgress.Foreground = B("#FF7A59");
+        DownloadProgress.Background = B("#1F3D63");
     }
 }
