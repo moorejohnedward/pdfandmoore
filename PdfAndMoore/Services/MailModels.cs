@@ -45,8 +45,8 @@ public sealed class SortRule
 
 public sealed class MailSettings
 {
-    /// <summary>Settings layout version (2 = v9.1: Gmail labels and categories sort mail).</summary>
-    public int Version { get; set; } = 2;
+    /// <summary>Settings layout version (2 = v9.1: Gmail labels and categories sort mail; 3 = v9.2: Clutter folder).</summary>
+    public int Version { get; set; } = 3;
     public List<MailAccount> Accounts { get; set; } = new();
     public List<string> Folders { get; set; } = new();
     public List<SortRule> Rules { get; set; } = new();
@@ -79,6 +79,11 @@ public sealed class MailSummary
     /// <summary>Gmail inbox tab: "primary", "promotions", "social", "updates", "forums" or "" if unknown.</summary>
     public string Category { get; set; } = "";
     public bool Starred { get; set; }
+    /// <summary>
+    /// True for mass mailings: the message has a List-Unsubscribe or List-Id header, or
+    /// "Precedence: bulk/list/junk". Real customers don't send mail like that.
+    /// </summary>
+    public bool Bulk { get; set; }
 }
 
 /// <summary>One page of messages from a folder.</summary>

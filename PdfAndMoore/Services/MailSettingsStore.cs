@@ -54,6 +54,7 @@ public sealed class MailSettingsStore
                 AutoSort = stored.AutoSort,
             };
             if (settings.Version < 2) Upgrade(settings);
+            if (settings.Version < 3) UpgradeToClutter(settings);
             return settings;
         }
         catch
@@ -77,6 +78,22 @@ public sealed class MailSettingsStore
         s.Rules = d.Rules.Concat(s.Rules.Where(r => !defaultMatches.Contains(r.Match))).ToList();
         if (s.FetchCount <= 50) s.FetchCount = 200;
         s.Version = 2;
+        try { Save(s); } catch { }
+    }
+
+    /// <summary>
+    /// v9.2: marketing and loan offers go to one "Clutter" folder (replacing Promotions), so they stop
+    /// burying customer mail in Dive Moore, KHT and the inbox. Keeps every folder and rule John added.
+    /// </summary>
+    private void UpgradeToClutter(MailSettings s)
+    {
+        int at = s.Folders.FindIndex(f => f.Equals("Promotions", StringComparison.OrdinalIgnoreCase));
+        if (at >= 0) s.Folders[at] = "Clutter";
+        else if (!s.Folders.Contains("Clutter", StringComparer.OrdinalIgnoreCase)) s.Folders.Add("Clutter");
+        s.Folders = s.Folders.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        foreach (var r in s.Rules)
+            if (r.Folder.Equals("Promotions", StringComparison.OrdinalIgnoreCase)) r.Folder = "Clutter";
+        s.Version = 3;
         try { Save(s); } catch { }
     }
 
@@ -133,7 +150,7 @@ public sealed class MailSettingsStore
                 ? Protect(newPw.Replace(" ", ""))
                 : current.Accounts.FirstOrDefault(c => c.Id == a.Id)?.ProtectedPassword ?? "";
         }
-        incoming.Version = 2;
+        incoming.Version = 3;
         incoming.Folders = incoming.Folders.Select(f => f.Trim()).Where(f => f.Length > 0).Distinct().ToList();
         incoming.Rules = incoming.Rules.Where(r => !string.IsNullOrWhiteSpace(r.Match) && !string.IsNullOrWhiteSpace(r.Folder)).ToList();
         if (incoming.FetchCount <= 0) incoming.FetchCount = 200;
@@ -209,7 +226,7 @@ public sealed class MailSettingsStore
                     },
                 },
             },
-            Folders = { "KHT", "Dive Moore", "Museum", "Business", "School", "VA & Benefits", "Diving", "Finance", "Travel", "Personal", "Promotions", "Updates", "Social", "fun" },
+            Folders = { "KHT", "Dive Moore", "Museum", "Business", "School", "VA & Benefits", "Diving", "Finance", "Travel", "Personal", "Updates", "Social", "fun", "Clutter" },
             // Order matters: first match wins. "label:" matches a Gmail label (and its sub-labels);
             // "category:" matches a Gmail inbox tab; anything else matches sender, recipients or subject.
             Rules =
@@ -237,7 +254,7 @@ public sealed class MailSettingsStore
                 new SortRule { Match = "millersville", Folder = "School" },
                 new SortRule { Match = "absorb", Folder = "School" },
                 new SortRule { Match = "va.gov", Folder = "VA & Benefits" },
-                new SortRule { Match = "category:promotions", Folder = "Promotions" },
+                new SortRule { Match = "category:promotions", Folder = "Clutter" },
                 new SortRule { Match = "category:social", Folder = "Social" },
                 new SortRule { Match = "category:updates", Folder = "Updates" },
                 new SortRule { Match = "category:forums", Folder = "Updates" },

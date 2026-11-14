@@ -6,6 +6,8 @@ import { el, icon, $, toast, dialog, confirmDialog, extOf, debounce } from './ut
 import { askOnce, mode as aiMode } from './claude.js';
 
 const SORT_KEY = 'pam.mailSort';
+const SAFE_KEY = 'pam.mailSafe'; // senders that are never clutter
+const CLUTTER = 'Clutter';
 const REFRESH_MINUTES = 5;
 
 const M = {
@@ -30,6 +32,8 @@ const M = {
   search: '',
   searchResults: null,
   showLabels: true,
+  safe: loadSafe(),
+  lastCleanup: null, // [{ accountId, uids }] in the Clutter label, for Undo
 };
 
 // ---------------------------------------------------------------------------
@@ -59,6 +63,7 @@ const FOLDER_LOOK = {
   Updates: ['info', '#9fa8da'],
   Social: ['groups', '#ce93d8'],
   fun: ['local_fire_department', '#ff8a80'],
+  Clutter: ['delete_sweep', '#8fa6bd'],
 };
 const folderLook = (f) => FOLDER_LOOK[f] || ['folder', '#8fa6bd'];
 
@@ -91,6 +96,19 @@ function loadSortCache() {
     return {};
   }
 }
+function loadSafe() {
+  try {
+    const list = JSON.parse(localStorage.getItem(SAFE_KEY) || 'null');
+    return Array.isArray(list) ? list : ['divevolk']; // DiveVolk mail is wanted
+  } catch {
+    return ['divevolk'];
+  }
+}
+function saveSafe() {
+  try {
+    localStorage.setItem(SAFE_KEY, JSON.stringify(M.safe));
+  } catch {}
+}
 function saveSortCache() {
   const keys = Object.keys(M.sort);
   if (keys.length > 4000) keys.slice(0, keys.length - 4000).forEach((k) => delete M.sort[k]);
@@ -116,21 +134,67 @@ function parseJson(text) {
 // ---------------------------------------------------------------------------
 // Sorting: your rules first (free, instant), Claude for the rest
 // ---------------------------------------------------------------------------
+// Each email's remembered sort: [folder, needsReply, urgency ("now" | "soon" | ""), due, kind].
+// kind: customer, person, business, automated, marketing, loan, spam ("" = Claude hasn't read it yet).
+const JUNK_KINDS = ['marketing', 'loan', 'spam'];
+const REAL_KINDS = ['customer', 'person', 'business'];
+const URGENCY_RANK = { now: 0, soon: 1 };
+const byUrgency = (a, b) => (URGENCY_RANK[a.urgency] ?? 2) - (URGENCY_RANK[b.urgency] ?? 2) || b.date - a.date;
+const reviewed = (m) => (M.sort[keyOf(m)] || []).length >= 5;
+
+function entry(m) {
+  const c = [...(M.sort[keyOf(m)] || [m.folder || '', !!m.needsReply, m.urgency || '', m.due || '', m.kind || ''])];
+  while (c.length < 5) c.push(c.length === 1 ? false : '');
+  return c;
+}
+
+// Loan and funding offers: almost never a customer, even when they're sent to a business address.
+const LOAN_RE = /\b(loans?|lending|lenders?|funding|fundable|financing|line of credit|credit line|working capital|business capital|cash advance|merchant cash|sba|pre-?approved|pre-?qualified|approved for|refinanc\w*|apr)\b/i;
+// Sales wording, only counted on mass mailings (a customer asking about a discount is still a customer).
+const PROMO_RE = /(% off|\bsale\b|\bdeals?\b|discount|coupon|promo|free shipping|limited time|last chance|ends (tonight|today|soon)|act now|webinar|black friday|cyber monday|exclusive offer|special offer|save \$?\d|shop now|new arrivals)/i;
+
+function isSafe(m) {
+  const from = (m.fromAddress || '').toLowerCase();
+  const name = (m.fromName || '').toLowerCase();
+  return M.safe.some((s) => s && (from.includes(s) || name.includes(s)));
+}
+
+/** Why an email counts as clutter (marketing or a loan offer), or '' if it doesn't. */
+function clutterReason(m) {
+  if (m.needsReply || isSafe(m) || REAL_KINDS.includes(m.kind)) return '';
+  if (m.kind === 'loan') return 'Loan offer';
+  if (JUNK_KINDS.includes(m.kind)) return 'Marketing';
+  if (m.kind === 'automated') return '';
+  if (/\.gov$/i.test(m.fromAddress || '')) return '';
+  if (LOAN_RE.test(`${m.subject} ${m.fromName}`)) return 'Loan offer';
+  if (m.category === 'promotions') return 'Marketing';
+  if (m.bulk && PROMO_RE.test(`${m.subject} ${m.preview}`)) return 'Marketing';
+  return '';
+}
+
 function ruleFolder(m) {
+  const labels = (m.labels || []).map((l) => l.toLowerCase());
+  // Gmail-tab rules (category:) always come last, so any rule you add beats "it's in Promotions".
+  const rules = [...(M.settings?.rules || [])].sort((a, b) => ((a.match || '').toLowerCase().startsWith('category:')) - ((b.match || '').toLowerCase().startsWith('category:')));
+  const labelMatch = (match) => {
+    // "label:VA" matches the Gmail label "VA" and ones under it or starting with it ("VA & Benefits", "VA/Claims").
+    const want = match.slice(6).trim();
+    return labels.some((l) => l === want || l.startsWith(want + '/') || l.startsWith(want + ' '));
+  };
+  // Marketing and loan offers go to Clutter, even when they're sent to john@divemoore.com,
+  // unless you put a Gmail label on them yourself.
+  const labeled = rules.some((r) => (r.match || '').trim().toLowerCase().startsWith('label:') && labelMatch((r.match || '').trim().toLowerCase()));
+  if (!labeled && clutterReason(m)) return CLUTTER;
+
   for (const id of allIdentities()) {
     if (id.folder && id.folder !== 'Personal' && (m.to + ' ' + m.cc).toLowerCase().includes(id.address.toLowerCase())) return id.folder;
   }
   const hay = `${m.fromName} ${m.fromAddress} ${m.to} ${m.subject}`.toLowerCase();
-  const labels = (m.labels || []).map((l) => l.toLowerCase());
-  // Gmail-tab rules (category:) always come last, so any rule you add beats "it's in Promotions".
-  const rules = [...(M.settings?.rules || [])].sort((a, b) => ((a.match || '').toLowerCase().startsWith('category:')) - ((b.match || '').toLowerCase().startsWith('category:')));
   for (const r of rules) {
     const match = (r.match || '').trim().toLowerCase();
     if (!match) continue;
     if (match.startsWith('label:')) {
-      // "label:VA" matches the Gmail label "VA" and ones under it or starting with it ("VA & Benefits", "VA/Claims").
-      const want = match.slice(6).trim();
-      if (labels.some((l) => l === want || l.startsWith(want + '/') || l.startsWith(want + ' '))) return r.folder;
+      if (labelMatch(match)) return r.folder;
     } else if (match.startsWith('category:')) {
       if (m.category && m.category === match.slice(9).trim()) return r.folder;
     } else if (hay.includes(match)) return r.folder;
@@ -138,10 +202,14 @@ function ruleFolder(m) {
   return null;
 }
 function applySorting(m) {
-  const cached = M.sort[keyOf(m)];
-  const rule = ruleFolder(m);
-  m.folder = rule || (cached && cached[0]) || '';
-  m.needsReply = !!(cached && cached[1]);
+  const c = M.sort[keyOf(m)] || [];
+  m.needsReply = !!c[1];
+  m.urgency = c[2] || '';
+  m.due = c[3] || '';
+  m.kind = c[4] || '';
+  m.folder = ruleFolder(m) || c[0] || '';
+  m.clutter = m.folder === CLUTTER;
+  m.clutterWhy = m.clutter ? clutterReason(m) || 'Marketing' : '';
 }
 
 function aboutMe() {
@@ -152,47 +220,199 @@ async function ai(prompt, system, maxTokens = 2000) {
   return askOnce(prompt, { system: system + '\n\n' + aboutMe(), maxTokens });
 }
 
+function nowText() {
+  const d = new Date();
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) + ' at ' + pad(d.getHours()) + pad(d.getMinutes());
+}
+
+/**
+ * Claude reads each email once: which folder, is it a customer, does someone need an answer,
+ * and how time-sensitive is it. Obvious mass mailings are skipped to keep it fast and cheap.
+ */
 async function smartSort({ onlyNew = true } = {}) {
   if (aiMode() !== 'api' && aiMode() !== 'local') {
     if (!onlyNew) toast('Smart Sort needs an AI. Pick one in Settings › AI assistant. Your keyword rules still sort for free.', { ms: 6000 });
     return;
   }
-  const targets = M.messages.filter((m) => !ruleFolder(m) && (onlyNew ? !M.sort[keyOf(m)] : true));
+  const obviousJunk = (m) => m.clutter && (m.bulk || m.category === 'promotions' || m.category === 'social');
+  const targets = M.messages.filter((m) => !obviousJunk(m) && (!reviewed(m) || (!onlyNew && !m.folder)));
   if (!targets.length) {
     if (!onlyNew) toast('Everything is already sorted.');
     return;
   }
-  const folders = M.settings.folders.join(', ');
+  const folders = [...new Set([...M.settings.folders, CLUTTER])];
   const addresses = allIdentities().map((i) => `${i.address} = ${i.folder}`).join('\n');
   const system =
-    `Sort each email into exactly one folder from this list: ${folders}.\n` +
-    '"Business" is business mail not tied to one company (DAN, PADI, State, County, city, insurance, permits, vendors). ' +
-    '"School" is Millersville University and coursework. "Newsletters" is marketing, promotions and automated bulk mail.\n' +
+    `You sort John's email so he never misses a customer and sees time-sensitive mail first. It is now ${nowText()} (Hawaii time).\n` +
+    'For each email decide:\n' +
+    `- folder: exactly one of: ${folders.join(', ')}. "Clutter" is marketing, sales pitches, newsletters, cold sales outreach, loan / funding / cash-advance / credit-line offers and spam. ` +
+    '"Business" is business mail not tied to one company (DAN, PADI, State, County, insurance, permits, vendors). "School" is Millersville University and coursework.\n' +
+    '- kind: "customer" (someone asking about, booking or paying for his services: dive lessons, scuba courses, charters, hydro testing, tank inspections, the museum; or an existing customer), ' +
+    '"person" (a real person writing to him), "business" (vendors, agencies, permits, insurance, partners, school staff), "automated" (receipts, shipping, account notices, alerts), ' +
+    '"marketing", "loan" (loan, funding, financing, cash advance or credit offers) or "spam".\n' +
+    '- needsReply: true only if a real person is waiting on an answer from John.\n' +
+    '- urgency: "now" if John should act within about 2 days (a booking or question about the next few days, a deadline, a bill, permit or payment due, an appointment change, a security alert), ' +
+    '"soon" if within about a week, otherwise "". Sales deadlines ("ends tonight", "limited time") are never urgent.\n' +
+    '- due: the deadline or date in a few words with 24-hour time if there is one (e.g. "Tue 1700", "Nov 20"), otherwise "".\n' +
     'Mail sent to one of these addresses usually belongs to that folder:\n' + addresses +
-    '\nAlso set needsReply true only if a real person is waiting on an answer from John.\n' +
-    'Reply with JSON only: [{"i":0,"folder":"...","needsReply":false}, ...]';
-  setStatus(`✨ Sorting ${targets.length} emails…`, true);
+    '\nReply with JSON only: [{"i":0,"folder":"...","kind":"...","needsReply":false,"urgency":"","due":""}, ...]';
+  setStatus(`✨ Claude is reading ${targets.length} emails…`, true);
   try {
-    for (let start = 0; start < targets.length; start += 30) {
-      const batch = targets.slice(start, start + 30);
-      const prompt = batch.map((m, i) => `[${i}] From: ${m.fromName} <${m.fromAddress}> | To: ${m.to} | Subject: ${m.subject} | ${m.preview.slice(0, 180)}`).join('\n');
-      const reply = await ai(prompt, system, 2500);
+    for (let start = 0; start < targets.length; start += 25) {
+      const batch = targets.slice(start, start + 25);
+      const prompt = batch
+        .map((m, i) => `[${i}] ${longDate(m.date)} | From: ${m.fromName} <${m.fromAddress}> | To: ${m.to}${m.bulk ? ' | mass mailing' : ''}${m.category ? ' | Gmail tab: ' + m.category : ''} | Subject: ${m.subject} | ${m.preview.slice(0, 200)}`)
+        .join('\n');
+      const reply = await ai(prompt, system, 3000);
       if (reply === null) break; // the AI isn't available right now
       const rows = parseJson(reply);
       if (!Array.isArray(rows)) continue;
       for (const r of rows) {
         const m = batch[r.i];
         if (!m) continue;
-        const folder = M.settings.folders.includes(r.folder) ? r.folder : 'Personal';
-        M.sort[keyOf(m)] = [folder, !!r.needsReply];
+        const kind = ['customer', 'person', 'business', 'automated', ...JUNK_KINDS].includes(r.kind) ? r.kind : '';
+        let folder = folders.includes(r.folder) ? r.folder : m.folder || 'Personal';
+        if (JUNK_KINDS.includes(kind)) folder = CLUTTER;
+        const junk = folder === CLUTTER;
+        const urgency = !junk && ['now', 'soon'].includes(r.urgency) ? r.urgency : '';
+        M.sort[keyOf(m)] = [folder, !junk && !!r.needsReply, urgency, urgency ? String(r.due || '').slice(0, 40) : '', kind || (junk ? 'marketing' : '')];
         applySorting(m);
       }
     }
     saveSortCache();
     render();
-    setStatus(`✨ Sorted. ${M.messages.filter((m) => m.needsReply).length} need a reply.`);
+    const urgent = M.messages.filter((m) => m.urgency && !m.clutter).length;
+    setStatus(`✨ Sorted. ${M.messages.filter((m) => m.needsReply).length} need a reply, ${urgent} time-sensitive.`);
   } catch (e) {
     setStatus('Smart Sort: ' + e.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Clean up: marketing and loan offers out of the inbox (into the Gmail label "Clutter")
+// ---------------------------------------------------------------------------
+const cleanupCandidates = () =>
+  M.messages.filter((m) => m.clutter && (m.mailbox || 'INBOX') === 'INBOX' && (!M.account || m.accountId === M.account));
+
+function markSafe(m) {
+  const who = (m.fromAddress || '').toLowerCase();
+  if (!who || M.safe.includes(who)) return;
+  M.safe.push(who);
+  saveSafe();
+  for (const x of allLoaded()) {
+    if ((x.fromAddress || '').toLowerCase() === who) {
+      const c = M.sort[keyOf(x)];
+      if (c && JUNK_KINDS.includes(c[4])) c[4] = 'person';
+      if (c && c[0] === CLUTTER) c[0] = '';
+      applySorting(x);
+    }
+  }
+  saveSortCache();
+}
+
+async function cleanUp() {
+  const list = cleanupCandidates();
+  if (!list.length) {
+    toast('No marketing or loan offers in the inbox right now.');
+    return;
+  }
+  // One line per sender, biggest first.
+  const groups = new Map();
+  for (const m of list) {
+    const k = (m.fromAddress || m.fromName || '?').toLowerCase();
+    if (!groups.has(k)) groups.set(k, { name: m.fromName || m.fromAddress, address: m.fromAddress, why: m.clutterWhy, items: [] });
+    groups.get(k).items.push(m);
+  }
+  const rows = [...groups.values()].sort((a, b) => b.items.length - a.items.length);
+  const checks = new Map();
+  const body = el(
+    'div',
+    { class: 'mail-clean' },
+    el('p', {}, `${list.length} emails look like marketing or loan offers. Checked ones move out of your inbox into the Gmail label “${CLUTTER}”. `,
+      el('b', {}, 'Nothing is deleted'), ', and Undo puts them back.'),
+    el(
+      'div',
+      { class: 'mail-clean-list' },
+      rows.map((g) => {
+        const box = el('input', { type: 'checkbox', checked: true });
+        checks.set(g, box);
+        const line = el(
+          'label',
+          { class: 'mail-clean-row' },
+          box,
+          el('span', { class: 'mail-clean-who' }, el('b', {}, g.name), el('small', {}, g.address)),
+          el('span', { class: 'mchip', style: { '--c': g.why === 'Loan offer' ? '#ff8a65' : '#8fa6bd' } }, g.why),
+          el('span', { class: 'mail-clean-n' }, String(g.items.length)),
+          el('button', {
+            class: 'btn btn-text small', title: 'This sender is real mail, never clutter',
+            onclick: (e) => {
+              e.preventDefault();
+              markSafe(g.items[0]);
+              box.checked = false;
+              line.classList.add('kept');
+            },
+          }, icon('verified'), 'Keep')
+        );
+        return line;
+      })
+    )
+  );
+  const ok = await dialog({
+    title: 'Clean up the inbox',
+    body,
+    width: '640px',
+    buttons: [
+      { label: 'Cancel', value: false },
+      { label: 'Move checked out of inbox', value: true, primary: true },
+    ],
+  });
+  render();
+  if (!ok) return;
+  const chosen = rows.filter((g) => checks.get(g).checked).flatMap((g) => g.items).filter((m) => m.clutter);
+  if (!chosen.length) return;
+
+  setStatus(`Moving ${chosen.length} emails to ${CLUTTER}…`, true);
+  const byAccount = new Map();
+  for (const m of chosen) {
+    if (!byAccount.has(m.accountId)) byAccount.set(m.accountId, []);
+    byAccount.get(m.accountId).push(m);
+  }
+  const undo = [];
+  const errors = [];
+  let moved = 0;
+  for (const [accountId, msgs] of byAccount) {
+    try {
+      const res = await host.mail.moveToLabel(accountId, msgs.map((m) => m.uid), CLUTTER);
+      if (res?.uids?.length) undo.push({ accountId, uids: res.uids });
+      const gone = new Set(msgs.map(keyOf));
+      M.messages = M.messages.filter((m) => !gone.has(keyOf(m)));
+      M.totals[accountId] = Math.max(0, (M.totals[accountId] || 0) - msgs.length);
+      moved += msgs.length;
+    } catch (e) {
+      errors.push(`${accountById(accountId)?.email || 'mail'}: ${e.message}`);
+    }
+  }
+  M.lastCleanup = undo.length ? undo : null;
+  M.labelMsgs.clear();
+  loadLabels();
+  render();
+  updateBadge();
+  if (errors.length) setStatus(`Moved ${moved}. Couldn't move some: ${errors.join('; ')}`);
+  else setStatus(`🧹 Moved ${moved} emails to ${CLUTTER}.`, false, M.lastCleanup ? { label: 'Undo', onclick: undoCleanUp } : null);
+}
+
+async function undoCleanUp() {
+  const undo = M.lastCleanup;
+  if (!undo) return;
+  M.lastCleanup = null;
+  setStatus('Putting them back…', true);
+  try {
+    for (const u of undo) await host.mail.moveBack(u.accountId, u.uids, CLUTTER);
+    M.labelMsgs.clear();
+    await refresh({ quiet: true });
+    setStatus('Back in your inbox.');
+  } catch (e) {
+    setStatus("Couldn't undo: " + e.message);
   }
 }
 
@@ -330,7 +550,7 @@ function dedupe(list) {
 }
 
 function updateBadge() {
-  const n = M.messages.filter((m) => !m.read).length;
+  const n = M.messages.filter((m) => !m.read && !m.clutter).length;
   const badge = $('#mailBadge');
   if (!badge) return;
   badge.textContent = n > 99 ? '99+' : String(n);
@@ -342,11 +562,15 @@ function updateBadge() {
 // ---------------------------------------------------------------------------
 function folders() {
   const list = [
-    { id: 'all', name: 'All mail', icon: 'inbox', color: '#5ab8ff', match: () => true },
-    { id: 'reply', name: 'Needs reply', icon: 'reply', color: '#ffc845', match: (m) => m.needsReply },
+    { id: 'all', name: 'All mail', icon: 'inbox', color: '#5ab8ff', match: (m) => !m.clutter },
+    { id: 'urgent', name: 'Time-sensitive', icon: 'alarm', color: '#ff5f5f', match: (m) => !m.clutter && !!m.urgency, byUrgency: true, countAll: true },
+    { id: 'reply', name: 'Needs reply', icon: 'reply', color: '#ffc845', match: (m) => m.needsReply, byUrgency: true, countAll: true },
+    { id: 'cust', name: 'Customers', icon: 'storefront', color: '#3fc28a', match: (m) => m.kind === 'customer' && !m.clutter },
     { id: 'biz', name: 'All business', icon: 'work', color: '#ff7a59', match: (m) => BUSINESS.includes(m.folder) },
   ];
-  for (const f of M.settings?.folders || []) {
+  const names = [...(M.settings?.folders || [])];
+  if (!names.includes(CLUTTER)) names.push(CLUTTER);
+  for (const f of names) {
     const [ic, color] = folderLook(f);
     list.push({ id: 'f:' + f, name: f, icon: ic, color, match: (m) => m.folder === f });
   }
@@ -360,21 +584,27 @@ function visible() {
   if (M.view.type === 'search') return M.searchResults || [];
   if (M.view.type === 'label') return (M.labelMsgs.get(M.view.accountId + '|' + M.view.mailbox)?.messages || []).filter(textMatch);
   const f = folders().find((x) => x.id === M.folder) || folders()[0];
-  return M.messages.filter(
+  const list = M.messages.filter(
     (m) =>
       (!M.account || m.accountId === M.account) &&
       f.match(m) &&
       (!q || `${m.fromName} ${m.fromAddress} ${m.subject} ${m.preview}`.toLowerCase().includes(q))
   );
+  // Time-sensitive and Needs reply: most urgent first, then newest.
+  return f.byUrgency ? list.sort(byUrgency) : list;
 }
 
 let statusTimer;
-function setStatus(text, working = false) {
+function setStatus(text, working = false, action = null) {
   const s = $('#mailStatus');
   if (!s) return;
-  s.replaceChildren(working ? el('span', { class: 'spinner small' }) : '', el('span', {}, text));
+  s.replaceChildren(
+    working ? el('span', { class: 'spinner small' }) : '',
+    el('span', {}, text),
+    action ? el('button', { class: 'btn btn-text small', onclick: () => (s.replaceChildren(), action.onclick()) }, action.label) : ''
+  );
   clearTimeout(statusTimer);
-  if (!working && text) statusTimer = setTimeout(() => s.replaceChildren(), 9000);
+  if (!working && text) statusTimer = setTimeout(() => s.replaceChildren(), action ? 20000 : 9000);
 }
 
 export function render() {
@@ -427,7 +657,7 @@ function renderSide() {
   const folderBtns = folders().map((f) =>
     navBtn(
       M.view.type === 'inbox' && M.folder === f.id, f.color, f.icon, f.name, '',
-      M.messages.filter((m) => (!M.account || m.accountId === M.account) && f.match(m) && (f.id === 'reply' || !m.read)).length,
+      M.messages.filter((m) => (!M.account || m.accountId === M.account) && f.match(m) && (f.countAll || !m.read)).length,
       () => ((M.folder = f.id), (M.view = { type: 'inbox' }), (M.selected = null), render())
     )
   );
@@ -507,7 +737,10 @@ function renderList() {
         'div',
         { class: 'mail-tools' },
         el('button', { class: 'btn btn-tonal', title: 'Check for new mail', onclick: () => refresh() }, icon('refresh'), 'Refresh'),
-        el('button', { class: 'btn btn-tonal ai-btn', title: 'Let Claude sort everything your rules didn’t catch', onclick: () => smartSort({ onlyNew: false }) }, icon('auto_awesome'), 'Smart Sort')
+        el('button', { class: 'btn btn-tonal ai-btn', title: 'Claude reads new mail: finds customers, what needs a reply and what is time-sensitive', onclick: () => smartSort({ onlyNew: false }) }, icon('auto_awesome'), 'Smart Sort'),
+        cleanupCandidates().length
+          ? el('button', { class: 'btn btn-tonal', title: 'Move marketing and loan offers out of your inbox (nothing is deleted)', onclick: cleanUp }, icon('cleaning_services'), `Clean up (${cleanupCandidates().length})`)
+          : ''
       ),
       search,
       el('div', { id: 'mailStatus', class: 'mail-status' })
@@ -560,7 +793,9 @@ function row(m) {
     el(
       'div',
       { class: 'mail-chips' },
-      m.folder ? el('span', { class: 'mchip', style: { '--c': fcolor } }, m.folder) : '',
+      m.urgency ? el('span', { class: 'mchip urgent' + (m.urgency === 'soon' ? ' soon' : '') }, icon('alarm'), (m.urgency === 'now' ? 'Time-sensitive' : 'This week') + (m.due ? ' · ' + m.due : '')) : '',
+      m.kind === 'customer' && !m.clutter ? el('span', { class: 'mchip cust' }, icon('storefront'), 'Customer') : '',
+      m.folder ? el('span', { class: 'mchip', style: { '--c': fcolor } }, m.clutter ? `${CLUTTER} · ${m.clutterWhy}` : m.folder) : '',
       m.needsReply ? el('span', { class: 'mchip reply' }, icon('reply'), 'Needs reply') : '',
       m.hasAttachments ? el('span', { class: 'mchip plain' }, icon('attach_file')) : ''
     )
@@ -605,9 +840,13 @@ function renderReader() {
     el('span', { class: 'mail-actions-sep' }),
     el('button', { class: 'btn btn-tonal ai-btn', onclick: () => summarize(m) }, icon('summarize'), 'Summarize'),
     el('button', { class: 'btn btn-tonal ai-btn', onclick: () => suggestReplies(m) }, icon('auto_awesome'), 'Suggest replies'),
+    m.needsReply ? el('button', { class: 'btn btn-tonal', title: 'Take it off Needs reply', onclick: () => moveTo(m, '__reply') }, icon('done'), 'Mark replied') : '',
+    m.clutter
+      ? el('button', { class: 'btn btn-tonal', title: 'Real mail: never mark this sender as clutter', onclick: () => moveTo(m, '__notClutter') }, icon('verified'), 'Not clutter')
+      : el('button', { class: 'btn btn-tonal', title: 'Marketing or an offer: send it to Clutter', onclick: () => moveTo(m, CLUTTER) }, icon('delete_sweep'), 'Clutter'),
     el('select', { class: 'field mail-move', title: 'Move to smart folder', onchange: (e) => moveTo(m, e.target.value) },
       el('option', { value: '' }, 'Move to…'),
-      (M.settings.folders || []).map((f) => el('option', { value: f }, f)),
+      [...new Set([...(M.settings.folders || []), CLUTTER])].map((f) => el('option', { value: f }, f)),
       el('option', { value: '__reply' }, m.needsReply ? 'Mark as replied' : 'Mark needs reply'))
   );
 
@@ -698,13 +937,30 @@ async function saveAttachment(m, a) {
 
 function moveTo(m, value) {
   if (!value) return;
-  const k = keyOf(m);
-  const cached = M.sort[k] || [m.folder, m.needsReply];
-  if (value === '__reply') M.sort[k] = [cached[0] || m.folder, !m.needsReply];
-  else M.sort[k] = [value, cached[1]];
+  const c = entry(m);
+  if (value === '__reply') {
+    c[0] = c[0] || m.folder;
+    c[1] = !m.needsReply;
+    if (!c[1]) c[2] = c[3] = ''; // replied: no longer time-sensitive
+  } else if (value === '__notClutter') {
+    markSafe(m);
+    if (JUNK_KINDS.includes(c[4]) || !c[4]) c[4] = 'person';
+    if (c[0] === CLUTTER) c[0] = '';
+    toast(`Got it. Mail from ${m.fromAddress} won't be marked as clutter.`);
+  } else {
+    if (m.clutter && value !== CLUTTER) markSafe(m);
+    c[0] = value;
+    if (value === CLUTTER) {
+      if (!JUNK_KINDS.includes(c[4])) c[4] = 'marketing';
+      c[1] = false;
+      c[2] = c[3] = '';
+    } else if (JUNK_KINDS.includes(c[4])) c[4] = 'person';
+  }
+  M.sort[keyOf(m)] = c;
   saveSortCache();
   applySorting(m);
-  if (ruleFolder(m) && value !== '__reply') toast(`A keyword rule keeps this in ${m.folder}. Change the rule in Settings › Email to move it.`, { ms: 6000 });
+  if (value !== '__reply' && value !== '__notClutter' && m.folder !== value)
+    toast(`A keyword rule keeps this in ${m.folder}. Change the rule in Settings › Email to move it.`, { ms: 6000 });
   render();
 }
 
@@ -1036,8 +1292,11 @@ export async function composeMail({ from = null, to = '', cc = '', subject = '',
       });
       sent = true;
       if (replyTo) {
-        const k = keyOf(replyTo);
-        M.sort[k] = [replyTo.folder, false];
+        const c = entry(replyTo);
+        c[0] = replyTo.folder;
+        c[1] = false;
+        c[2] = c[3] = ''; // answered: off Needs reply and Time-sensitive
+        M.sort[keyOf(replyTo)] = c;
         saveSortCache();
         applySorting(replyTo);
         render();

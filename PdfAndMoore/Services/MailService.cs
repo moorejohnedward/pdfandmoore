@@ -48,6 +48,17 @@ public sealed class MailService
 
     private static bool IsGmail(ImapClient client) => (client.Capabilities & ImapCapabilities.GMailExt1) != 0;
 
+    // Headers that mark mass mailings (newsletters, marketing, loan offers sent in bulk).
+    private static readonly string[] BulkHeaders = { "List-Unsubscribe", "List-Id", "Precedence" };
+
+    private static FetchRequest SummaryRequest(bool gmail)
+    {
+        var items = MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.Flags |
+                    MessageSummaryItems.PreviewText | MessageSummaryItems.References | MessageSummaryItems.BodyStructure;
+        if (gmail) items |= MessageSummaryItems.GMailLabels;
+        return new FetchRequest(items, BulkHeaders);
+    }
+
     /// <summary>
     /// Reads one page of a folder, newest first. skip = how many of the newest messages were already loaded
     /// (for "Load older"). On Gmail, each message also gets its labels and its inbox tab (Primary, Promotions…).
@@ -63,11 +74,7 @@ public sealed class MailService
         {
             int start = Math.Max(0, end - count + 1);
             bool gmail = IsGmail(client);
-            var items = MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.Flags |
-                        MessageSummaryItems.PreviewText | MessageSummaryItems.References | MessageSummaryItems.BodyStructure;
-            if (gmail) items |= MessageSummaryItems.GMailLabels;
-
-            var summaries = await folder.FetchAsync(start, end, items, ct);
+            var summaries = await folder.FetchAsync(start, end, SummaryRequest(gmail), ct);
             foreach (var s in summaries) page.Messages.Add(ToSummary(a, folder.FullName, s));
 
             // Gmail's tabs aren't labels over IMAP, so ask Gmail which of these messages are in each tab.
@@ -135,10 +142,7 @@ public sealed class MailService
         var newest = uids.OrderByDescending(u => u.Id).Take(max).ToList();
         if (newest.Count > 0)
         {
-            var items = MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.Flags |
-                        MessageSummaryItems.PreviewText | MessageSummaryItems.References | MessageSummaryItems.BodyStructure;
-            if (gmail) items |= MessageSummaryItems.GMailLabels;
-            foreach (var s in await folder.FetchAsync(newest, items, ct)) page.Messages.Add(ToSummary(a, folder.FullName, s));
+            foreach (var s in await folder.FetchAsync(newest, SummaryRequest(gmail), ct)) page.Messages.Add(ToSummary(a, folder.FullName, s));
         }
         await client.DisconnectAsync(true, ct);
         return page;
@@ -168,7 +172,52 @@ public sealed class MailService
             HasAttachments = s.Attachments?.Any() == true,
             // System labels look like "\\Important"; keep only the user's own labels.
             Labels = labels.Where(l => !l.StartsWith('\\')).ToList(),
+            Bulk = IsBulk(s.Headers),
         };
+    }
+
+    private static bool IsBulk(HeaderList? headers)
+    {
+        if (headers == null) return false;
+        if (headers.Contains("List-Unsubscribe") || headers.Contains("List-Id")) return true;
+        var precedence = headers["Precedence"]?.Trim().ToLowerInvariant();
+        return precedence is "bulk" or "list" or "junk";
+    }
+
+    /// <summary>
+    /// Clean up: moves messages out of a folder (normally the inbox) into a label, e.g. "Clutter".
+    /// On Gmail that's the same as archiving with a label: nothing is deleted, and the mail stays
+    /// in All Mail and under the label. Returns the messages' new IDs in the label (for Undo).
+    /// </summary>
+    public async Task<List<uint>> MoveToLabelAsync(MailAccount a, string? mailbox, IList<uint> uids, string label, CancellationToken ct = default)
+    {
+        if (uids.Count == 0) return new List<uint>();
+        using var client = await OpenImapAsync(a, ct);
+        var target = await GetOrCreateFolderAsync(client, label, ct);
+        var source = await OpenFolderAsync(client, mailbox, FolderAccess.ReadWrite, ct);
+        var map = await source.MoveToAsync(uids.Select(u => new UniqueId(u)).ToList(), target, ct);
+        await client.DisconnectAsync(true, ct);
+        return map.Destination.Select(u => u.Id).ToList();
+    }
+
+    /// <summary>Undo for clean up: moves messages from a label back into the inbox.</summary>
+    public async Task<int> MoveBackToInboxAsync(MailAccount a, string label, IList<uint> uids, CancellationToken ct = default)
+    {
+        if (uids.Count == 0) return 0;
+        using var client = await OpenImapAsync(a, ct);
+        var source = await OpenFolderAsync(client, label, FolderAccess.ReadWrite, ct);
+        var map = await source.MoveToAsync(uids.Select(u => new UniqueId(u)).ToList(), client.Inbox, ct);
+        await client.DisconnectAsync(true, ct);
+        return Math.Max(map.Destination.Count, uids.Count);
+    }
+
+    private static async Task<IMailFolder> GetOrCreateFolderAsync(ImapClient client, string name, CancellationToken ct)
+    {
+        try { return await client.GetFolderAsync(name, ct); }
+        catch (FolderNotFoundException) { }
+        var ns = client.PersonalNamespaces.FirstOrDefault() ?? throw new InvalidOperationException("This mail server didn't list any folders.");
+        var root = client.GetFolder(ns);
+        return await root.CreateAsync(name, true, ct) ?? throw new InvalidOperationException($"Couldn't make the \"{name}\" label.");
     }
 
     /// <summary>Downloads one message, returns its text/HTML and attachment list, and marks it read.</summary>

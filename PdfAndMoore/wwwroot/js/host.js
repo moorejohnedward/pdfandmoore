@@ -335,6 +335,10 @@ export const mail = {
     return { name: res.name, bytes: base64ToBytes(res.base64) };
   },
   saveAttachment: (accountId, uid, index, mailbox = 'INBOX') => mailCall('mailSaveAttachment', { accountId, uid, index, mailbox }),
+  /** Clean up: moves messages out of the inbox into a Gmail label. Returns { uids } in the label (for Undo). */
+  moveToLabel: (accountId, uids, label = 'Clutter', mailbox = 'INBOX') => mailCall('mailMoveToLabel', { accountId, uids, label, mailbox }),
+  /** Undo clean up: moves messages from a label back to the inbox. */
+  moveBack: (accountId, uids, label = 'Clutter') => mailCall('mailMoveBack', { accountId, uids, label }),
   /** attachments: [{name, bytes}] */
   send: ({ accountId, from, to, cc, bcc, subject, body, attachments = [], inReplyTo = null, references = [] }) =>
     mailCall('mailSend', {

@@ -326,6 +326,17 @@ public sealed class HostBridge
                 return new { messages = results.SelectMany(r => r), errors };
             }
 
+            case "mailMoveToLabel":
+            {
+                // Clean up: move messages out of the inbox into a label ("Clutter"). Nothing is deleted.
+                var moved = await _mail.MoveToLabelAsync(MailAccountById(Str(args, "accountId")), Str(args, "mailbox"),
+                    UIntList(args, "uids"), Str(args, "label") ?? "Clutter");
+                return new { uids = moved };
+            }
+
+            case "mailMoveBack":
+                return await _mail.MoveBackToInboxAsync(MailAccountById(Str(args, "accountId")), Str(args, "label") ?? "Clutter", UIntList(args, "uids"));
+
             case "mailMessage":
                 return await _mail.GetMessageAsync(MailAccountById(Str(args, "accountId")), Str(args, "mailbox"), UInt(args, "uid"));
 
@@ -473,6 +484,15 @@ public sealed class HostBridge
         args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetUInt32(out var n)
             ? n
             : throw new ArgumentException("Missing number: " + name);
+
+    private static List<uint> UIntList(JsonElement args, string name)
+    {
+        var list = new List<uint>();
+        if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array)
+            foreach (var x in v.EnumerateArray())
+                if (x.ValueKind == JsonValueKind.Number && x.TryGetUInt32(out var n)) list.Add(n);
+        return list;
+    }
 
     private MailAccount MailAccountById(string? id) =>
         _mailStore.Load().Accounts.FirstOrDefault(a => a.Id == id)

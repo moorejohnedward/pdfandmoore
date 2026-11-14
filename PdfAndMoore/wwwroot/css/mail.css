@@ -75,6 +75,9 @@ html[data-theme='light'] .mail-list { background: #fff; }
 }
 .mchip.reply { --c: var(--sun); }
 .mchip.plain { --c: var(--muted); padding: 2px 6px; }
+.mchip.urgent { --c: var(--danger); }
+.mchip.urgent.soon { --c: var(--coral); }
+.mchip.cust { --c: var(--lime); }
 .mchip .ms { font-size: 15px; }
 .mail-empty { display: grid; place-items: center; gap: 8px; padding: 60px 20px; color: var(--muted); font-size: 16px; }
 .mail-empty .ms { font-size: 48px; color: var(--sun); }
@@ -232,3 +235,17 @@ html[data-theme='light'] .compose { background: #fff; }
 .mail-nav.mail-label .mail-nav-icon .ms { font-size: 18px; }
 .mail-more { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 16px 26px; }
 .mail-more-text { color: var(--muted); font-size: 13.5px; text-align: center; }
+
+/* ---------- clean up (v9.2) ---------- */
+.mail-clean p { margin: 0 0 12px; line-height: 1.5; }
+.mail-clean-list { max-height: 52vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+.mail-clean-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.mail-clean-row:last-child { border-bottom: 0; }
+.mail-clean-row:hover { background: var(--hover); }
+.mail-clean-row input { width: 18px; height: 18px; flex: none; }
+.mail-clean-who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mail-clean-who b, .mail-clean-who small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-clean-who small { color: var(--muted); }
+.mail-clean-n { font-weight: 700; min-width: 2.5em; text-align: right; }
+.mail-clean-row.kept { opacity: 0.55; }
+.mail-clean-row.kept .mail-clean-who b::after { content: '  (kept)'; font-weight: 400; color: var(--lime); }

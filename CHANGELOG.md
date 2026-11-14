@@ -2,6 +2,18 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.2.0 — Saturday, November 14, 2026
+**Clean up the clutter, never miss a customer, see what's time-sensitive first**
+- **Clutter folder:** marketing, sales pitches and loan / funding / cash-advance offers go to one **Clutter** folder (it replaces Promotions), even when they're sent to john@divemoore.com. Before, anything sent to a business address landed in that business's folder, junk included. Mass mailings are spotted by their unsubscribe headers, and Gmail labels you put on mail yourself always win. DiveVolk mail is kept.
+- **Clean up (N)** button: lists the clutter in your inbox by sender with a count, all checked. Uncheck anything, or press **Keep** to mark a sender as real mail for good. **Move checked out of inbox** moves them into the Gmail label "Clutter" (same as archiving with a label). Nothing is deleted, and **Undo** puts them back.
+- **Time-sensitive** smart folder and chips: Smart Sort now has Claude read every new email (not just ones your rules missed) and mark what needs action within about 2 days (red, "Time-sensitive · Sat 0800") or this week (orange). Sales deadlines never count.
+- **Needs reply** is kept and now lists the most urgent first. Replying, or **Mark replied** in the reader, takes an email off both lists.
+- **Customers** smart folder and a green **Customer** chip for people asking about or booking lessons, charters, hydro testing or the museum.
+- **Clutter / Not clutter** buttons in the reader. Moving something out of Clutter remembers the sender.
+- All mail and the unread count on the Mail button leave clutter out.
+- **Updater fix:** the 9.0 → 9.1 update failed with "The update couldn't be copied into the app's folder" because the old 8.1 copy (PDF and Moore.exe.old) was never cleaned up. Start-up cleanup now keeps retrying while the previous copy closes, and an update renames a stuck .old file aside instead of failing.
+- New code: `MailService.MoveToLabelAsync` / `MoveBackToInboxAsync`, bulk-mail headers on every message (`MailSummary.Bulk`), `mailMoveToLabel` / `mailMoveBack` bridge commands, settings version 3.
+
 ## v9.1.0 — Friday, November 13, 2026
 **Mail sorts the way your Gmail does, and all your mail is reachable**
 - **Sorting uses your Gmail labels and tabs.** Mail labeled Business, Business/Square, Millersville (and its sub-labels), Colorado Technical University, VA & Benefits, PADI/Diving, Finance, Travel or fun goes straight to the matching smart folder. Gmail's Promotions, Social and Updates tabs become smart folders too. Claude only sorts what's left, so Smart Sort is faster and cheaper.
