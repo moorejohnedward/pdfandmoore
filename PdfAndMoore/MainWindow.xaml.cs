@@ -29,6 +29,7 @@ public partial class MainWindow : Window
         _startupFile = startupFile;
         _startupAsPdf = startupAsPdf;
         InitializeComponent();
+        ApplyTheme(UiPrefs.Load().Theme);
         Loaded += async (_, _) => await InitializeEditorAsync();
         Closing += OnClosing;
     }
@@ -213,6 +214,17 @@ public partial class MainWindow : Window
         if (_claudeWindow == null) return;
         _claudeWindow.AppIsClosing = true;
         _claudeWindow.Close();
+    }
+
+    /// <summary>Colors the Windows parts of the window (behind the editor and the start-up splash) to match the theme.</summary>
+    internal void ApplyTheme(string theme)
+    {
+        bool dark = !string.Equals(theme, "light", StringComparison.OrdinalIgnoreCase);
+        var bg = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(dark ? "#0F1B2D" : "#F9FBFD");
+        Background = new System.Windows.Media.SolidColorBrush(bg);
+        var fg = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(dark ? "#EAF1F8" : "#1F1F1F");
+        SplashTitle.Foreground = new System.Windows.Media.SolidColorBrush(fg);
+        Web.DefaultBackgroundColor = dark ? System.Drawing.Color.FromArgb(0x0F, 0x1B, 0x2D) : System.Drawing.Color.FromArgb(0xF9, 0xFB, 0xFD);
     }
 
     internal static string ToJson(object? value) => JsonSerializer.Serialize(value, HostBridge.JsonOptions);

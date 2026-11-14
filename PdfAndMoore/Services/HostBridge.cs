@@ -25,6 +25,8 @@ public sealed class HostBridge
     private readonly SettingsStore _settings = new();
     private readonly RecentFiles _recent = new();
     private readonly ClaudeClient _claude = new();
+    private readonly MailSettingsStore _mailStore = new();
+    private readonly MailService _mail = new();
 
     private const string OpenFilter =
         "All supported files|*.pdf;*.docx;*.doc;*.docm;*.dotx;*.dot;*.xlsx;*.xlsm;*.xls;*.xlsb;*.csv;*.tsv;*.ods;*.odp;*.pptx;*.ppt;*.pptm;*.ppsx;*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;*.tif;*.tiff;*.heic;*.heif;*.avif;*.txt;*.md;*.html;*.htm;*.rtf;*.odt;*.json;*.xml|" +
@@ -243,6 +245,92 @@ public sealed class HostBridge
             case "appVersion":
                 return UpdateService.CurrentVersion.ToString(3);
 
+            case "getUpdatePrefs":
+                return new { checkOnStartup = UpdateService.CheckOnStartup };
+
+            case "setUpdatePrefs":
+                UpdateService.CheckOnStartup = Bool(args, "checkOnStartup");
+                return true;
+
+            // ---- Look & feel (v9) ----
+            case "getUiPrefs":
+                return UiPrefs.Load();
+
+            case "setUiPrefs":
+            {
+                var prefs = new UiPrefs { Theme = Str(args, "theme") ?? "dark", TextSize = Str(args, "textSize") ?? "large" };
+                prefs.Save();
+                _window.ApplyTheme(prefs.Theme);
+                return true;
+            }
+
+            // ---- Mail tab (v9) ----
+            case "mailGetSettings":
+                return MailSettingsStore.ToClient(_mailStore.Load());
+
+            case "mailSaveSettings":
+            {
+                MailSettings saved = _mailStore.FromClient(Str(args, "json") ?? "{}");
+                _mailStore.Save(saved);
+                return MailSettingsStore.ToClient(saved);
+            }
+
+            case "mailTest":
+                await _mail.TestAsync(MailAccountById(Str(args, "accountId")));
+                return true;
+
+            case "mailFetch":
+            {
+                MailSettings ms = _mailStore.Load();
+                string? only = Str(args, "accountId");
+                var errors = new List<string>();
+                var jobs = ms.Accounts
+                    .Where(a => !string.IsNullOrEmpty(a.ProtectedPassword) && (only == null || a.Id == only))
+                    .Select(async a =>
+                    {
+                        try { return await _mail.FetchInboxAsync(a, ms.FetchCount); }
+                        catch (Exception ex) { lock (errors) errors.Add($"{a.Email}: {ex.Message}"); return new List<MailSummary>(); }
+                    });
+                var results = await Task.WhenAll(jobs);
+                return new { messages = results.SelectMany(r => r), errors };
+            }
+
+            case "mailMessage":
+                return await _mail.GetMessageAsync(MailAccountById(Str(args, "accountId")), UInt(args, "uid"));
+
+            case "mailAttachment":
+            {
+                var (name, bytes) = await _mail.GetAttachmentAsync(MailAccountById(Str(args, "accountId")), UInt(args, "uid"), (int)UInt(args, "index"));
+                return new { name, base64 = Convert.ToBase64String(bytes) };
+            }
+
+            case "mailSaveAttachment":
+            {
+                var (name, bytes) = await _mail.GetAttachmentAsync(MailAccountById(Str(args, "accountId")), UInt(args, "uid"), (int)UInt(args, "index"));
+                var dialog = new SaveFileDialog { Title = "Save attachment", FileName = name, OverwritePrompt = true, Filter = "All files (*.*)|*.*" };
+                if (dialog.ShowDialog(_window) != true) return null;
+                await File.WriteAllBytesAsync(dialog.FileName, bytes);
+                return dialog.FileName;
+            }
+
+            case "mailSend":
+            {
+                MailAccount account = MailAccountById(Str(args, "accountId"));
+                string fromAddress = Str(args, "from") ?? "";
+                SendIdentity from = account.Identities.FirstOrDefault(i => i.Address.Equals(fromAddress, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new InvalidOperationException("Pick a From address.");
+                var attachments = new List<MailService.OutgoingAttachment>();
+                if (args.TryGetProperty("attachments", out var atts) && atts.ValueKind == JsonValueKind.Array)
+                    foreach (var att in atts.EnumerateArray())
+                        attachments.Add(new MailService.OutgoingAttachment(Str(att, "name") ?? "attachment", Convert.FromBase64String(Str(att, "base64") ?? "")));
+                var refs = new List<string>();
+                if (args.TryGetProperty("references", out var r) && r.ValueKind == JsonValueKind.Array)
+                    foreach (var x in r.EnumerateArray()) if (x.GetString() is { } v) refs.Add(v);
+                await _mail.SendAsync(account, from, Str(args, "to") ?? "", Str(args, "cc") ?? "", Str(args, "bcc") ?? "",
+                    Str(args, "subject") ?? "", Str(args, "body") ?? "", attachments, Str(args, "inReplyTo"), refs);
+                return true;
+            }
+
             default:
                 throw new NotSupportedException("Unknown command: " + cmd);
         }
@@ -267,6 +355,7 @@ public sealed class HostBridge
             {
                 "pdf" => "PDF files (*.pdf)|*.pdf",
                 "image" => "Pictures|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;*.tif;*.tiff;*.heic;*.heif|All files (*.*)|*.*",
+                "any" => "All files (*.*)|*.*",
                 _ => OpenFilter,
             },
         };
@@ -343,6 +432,15 @@ public sealed class HostBridge
         args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString()
             : null;
+
+    private static uint UInt(JsonElement args, string name) =>
+        args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetUInt32(out var n)
+            ? n
+            : throw new ArgumentException("Missing number: " + name);
+
+    private MailAccount MailAccountById(string? id) =>
+        _mailStore.Load().Accounts.FirstOrDefault(a => a.Id == id)
+        ?? throw new InvalidOperationException("That email account isn't set up anymore. Check Settings › Email accounts.");
 
     private static bool Bool(JsonElement args, string name) =>
         args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
