@@ -4,7 +4,7 @@ name: Build check
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, mail ]
   pull_request:
   workflow_dispatch:
 
