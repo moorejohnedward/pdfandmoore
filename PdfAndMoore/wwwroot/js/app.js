@@ -19,6 +19,7 @@ import * as protect from './protect.js';
 import * as newdocui from './newdocui.js';
 import * as restore from './restore.js';
 import * as mail from './mail.js';
+import * as search from './search.js';
 import { openSettings, initLook } from './settings.js';
 
 const APP = 'PDF and Moore';
@@ -1150,48 +1151,49 @@ function renderComments() {
   }
 }
 
-// Find
+// Find (v9.4: the permanent search box at the top drives this; see search.js)
 let findHits = [];
 let findIdx = -1;
 const textCache = new Map();
 function openFind() {
-  if (!state.doc) return;
-  $('#findBar').style.top = $('#viewer').getBoundingClientRect().top + 10 + 'px';
-  $('#findBar').classList.add('show');
-  $('#findInput').focus();
-  $('#findInput').select();
+  search.focusSearch();
 }
-function closeFind() {
-  $('#findBar').classList.remove('show');
+function clearFind() {
+  findHits = [];
+  findIdx = -1;
   state.searchQuery = '';
   refreshSearchHighlights();
 }
-const runFind = debounce(async () => {
-  const q = $('#findInput').value.trim().toLowerCase();
-  state.searchQuery = q;
-  findHits = [];
-  findIdx = -1;
-  if (q) {
-    for (let i = 0; i < state.doc.pages.length; i++) {
-      const p = state.doc.pages[i];
-      const key = p.src + ':' + p.index + ':' + (p.ocrText ? 1 : 0);
-      if (!textCache.has(key)) textCache.set(key, (await getPageText(state.doc, p)).toLowerCase());
-      const t = textCache.get(key);
-      let at = t.indexOf(q);
-      while (at >= 0) {
-        findHits.push(i);
-        at = t.indexOf(q, at + q.length);
-      }
+let findRun = 0;
+/** Finds every match of `query` in the open document, highlights them and jumps to the first. */
+async function findInDoc(query) {
+  const q = (query || '').trim().toLowerCase();
+  const run = ++findRun;
+  if (!state.doc || !q) return clearFind(), 0;
+  const hits = [];
+  const doc = state.doc;
+  for (let i = 0; i < doc.pages.length; i++) {
+    const p = doc.pages[i];
+    const key = p.src + ':' + p.index + ':' + (p.ocrText ? 1 : 0);
+    if (!textCache.has(key)) textCache.set(key, ((await getPageText(doc, p)) || '').toLowerCase());
+    if (run !== findRun || state.doc !== doc) return findHits.length; // newer words were typed
+    const t = textCache.get(key);
+    let at = t.indexOf(q);
+    while (at >= 0) {
+      hits.push(i);
+      at = t.indexOf(q, at + q.length);
     }
   }
-  $('#findCount').textContent = q ? (findHits.length ? `${findHits.length} found` : 'No results') : '';
+  findHits = hits;
+  findIdx = -1;
+  state.searchQuery = q;
   refreshSearchHighlights();
   if (findHits.length) stepFind(1);
-}, 250);
+  return findHits.length;
+}
 function stepFind(dir) {
   if (!findHits.length) return;
   findIdx = (findIdx + dir + findHits.length) % findHits.length;
-  $('#findCount').textContent = `${findIdx + 1} of ${findHits.length}`;
   scrollToPage(findHits[findIdx]);
 }
 
@@ -1287,12 +1289,16 @@ function onKey(e) {
   if (ctrl && k === '1') return e.preventDefault(), setApp('docs');
   if (ctrl && k === '2') return e.preventDefault(), setApp('mail');
   if (ctrl && k === ',') return e.preventDefault(), openSettings();
+  if (ctrl && k === 'f' && !document.body.classList.contains('composing') && !document.querySelector('.modal-backdrop')) return e.preventDefault(), openFind();
+  if (document.body.classList.contains('app-mail') && e.key === 'Delete' && !ctrl && !typingInField(e) && !document.body.classList.contains('composing') && !document.querySelector('.modal-backdrop')) {
+    if (mail.deleteSelected()) e.preventDefault();
+    return;
+  }
   if (document.body.classList.contains('app-mail') || document.body.classList.contains('composing') || document.querySelector('.modal-backdrop')) return;
   if (ctrl && k === 'o') return e.preventDefault(), openDialog();
   if (ctrl && k === 's') return e.preventDefault(), save(e.shiftKey);
   if (ctrl && k === 'p') return e.preventDefault(), printDoc();
   if (ctrl && k === 'j') return e.preventDefault(), togglePanel();
-  if (ctrl && k === 'f') return e.preventDefault(), openFind();
   if (ctrl && k === '/') return e.preventDefault(), shortcutsDialog();
   if (ctrl && (k === '=' || k === '+')) return e.preventDefault(), setZoom(state.zoom * 1.2);
   if (ctrl && k === '-') return e.preventDefault(), setZoom(state.zoom / 1.2);
@@ -1308,7 +1314,6 @@ function onKey(e) {
   }
   if (e.key === 'Escape') {
     hideSelectionMenu();
-    closeFind();
     if (state.tool !== 'select') setTool('select');
     else if (state.selectedAnnot) {
       state.selectedAnnot = null;
@@ -1395,6 +1400,7 @@ function setApp(app) {
   $$('#appSwitch button').forEach((b) => b.classList.toggle('on', b.dataset.app === app));
   closeMenus();
   if (isMail) mail.onShow();
+  search.appChanged();
 }
 
 /** Email the open document as a PDF attachment. */
@@ -1466,15 +1472,23 @@ async function main() {
     state.doc.dirty = true;
     updateTitle();
   });
-  $('#findInput').addEventListener('input', runFind);
-  $('#findInput').addEventListener('keydown', (e) => {
-    e.stopPropagation();
-    if (e.key === 'Enter') stepFind(e.shiftKey ? -1 : 1);
-    if (e.key === 'Escape') closeFind();
+  search.initSearch({
+    app: () => (document.body.classList.contains('app-mail') ? 'mail' : 'docs'),
+    setApp,
+    doc: {
+      name: () => (state.doc ? state.doc.name : null),
+      find: findInDoc,
+      step: stepFind,
+      position: () => ({ at: findIdx + 1, total: findHits.length }),
+      clear: clearFind,
+    },
+    mail: mail.searchApi,
+    openPath: (p) => openPath(p),
   });
-  $('#findNext').addEventListener('click', () => stepFind(1));
-  $('#findPrev').addEventListener('click', () => stepFind(-1));
-  $('#findClose').addEventListener('click', closeFind);
+  on('docopen', () => {
+    textCache.clear();
+    search.docChanged();
+  });
   $$('#selMenu button').forEach((b) =>
     b.addEventListener('mousedown', (e) => {
       e.preventDefault();

@@ -596,6 +596,7 @@ async function loadOlder() {
 /** Searches every message in the mailbox on the server (Gmail search words work too). */
 async function searchAll(query) {
   if (!query.trim()) return;
+  M.search = query;
   M.view = { type: 'search', query };
   M.selected = null;
   M.searchResults = [];
@@ -788,22 +789,7 @@ function renderList() {
     M.view.type === 'search' ? { name: `Search: ${M.view.query}`, icon: 'search', color: '#9b6bff' } :
     M.view.type === 'drafts' ? { name: 'Drafts', icon: 'draft', color: '#ffb74d' } : sf;
   const items = visible();
-  const search = el('input', { class: 'mail-search', type: 'search', placeholder: 'Search… (press Enter to search all mail)', title: 'Gmail search words work too, like from:tim or has:attachment', value: M.search });
-  search.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') searchAll(search.value);
-  });
-  search.addEventListener(
-    'input',
-    debounce(() => {
-      M.search = search.value;
-      const pos = search.selectionStart;
-      render();
-      const s = $('.mail-search');
-      s.focus();
-      s.setSelectionRange(pos, pos);
-    }, 200)
-  );
-  search.addEventListener('keydown', (e) => e.stopPropagation());
+  // v9.4: searching is done in the permanent search box at the top of the window (search.js).
   return el(
     'section',
     { class: 'mail-list' },
@@ -820,7 +806,9 @@ function renderList() {
           ? el('button', { class: 'btn btn-tonal', title: 'Move marketing and loan offers out of your inbox (nothing is deleted)', onclick: cleanUp }, icon('cleaning_services'), `Clean up (${cleanupCandidates().length})`)
           : ''
       ),
-      search,
+      M.search && M.view.type !== 'search'
+        ? el('div', { class: 'mail-filter-note' }, icon('filter_alt'), el('span', {}, `Showing emails that match “${M.search}”`), el('button', { class: 'btn btn-text small', onclick: () => setSearchText('') }, 'Show all'))
+        : '',
       el('div', { id: 'mailStatus', class: 'mail-status' })
     ),
     el(
@@ -855,17 +843,35 @@ function listFooter() {
     parts.push(el('div', { class: 'mail-more-text' }, `Showing the newest ${loaded.toLocaleString()} of ${total.toLocaleString()}${M.view.type === 'inbox' ? ' in the inbox' : ''}.`));
     if (loaded < total) parts.push(el('button', { class: 'btn btn-tonal', onclick: loadOlder }, icon('expand_more'), 'Load older'));
   }
-  if (M.view.type === 'search') parts.push(el('button', { class: 'btn btn-text', onclick: () => ((M.view = { type: 'inbox' }), (M.search = ''), render()) }, icon('arrow_back'), 'Back to inbox'));
+  if (M.view.type === 'search') parts.push(el('button', { class: 'btn btn-text', onclick: () => ((M.view = { type: 'inbox' }), setSearchText('')) }, icon('arrow_back'), 'Back to inbox'));
   return parts.length ? el('div', { class: 'mail-more' }, parts) : '';
 }
 
 function row(m) {
   const acct = accountById(m.accountId);
   const [, fcolor] = folderLook(m.folder);
+  const go = () => (m.draft ? resumeDraft(m) : open(m));
   return el(
-    'button',
-    { class: 'mail-row' + (m.read || m.draft ? '' : ' unread') + (keyOf(m) === M.selected ? ' on' : ''), style: { '--acct': acct?.color || '#5ab8ff' }, onclick: () => (m.draft ? resumeDraft(m) : open(m)) },
-    el('div', { class: 'mail-row-top' }, el('span', { class: 'mail-from' }, m.draft ? 'To: ' + (m.to || '(nobody yet)') : m.fromName || m.fromAddress), el('span', { class: 'mail-date' }, shortDate(m.date))),
+    'div',
+    {
+      class: 'mail-row' + (m.read || m.draft ? '' : ' unread') + (keyOf(m) === M.selected ? ' on' : ''),
+      role: 'button',
+      tabindex: '0',
+      style: { '--acct': acct?.color || '#5ab8ff' },
+      onclick: go,
+      onkeydown: (e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') (e.preventDefault(), go());
+        if (e.key === 'Delete') (e.preventDefault(), deleteMail(m));
+      },
+    },
+    el(
+      'div',
+      { class: 'mail-row-top' },
+      el('span', { class: 'mail-from' }, m.draft ? 'To: ' + (m.to || '(nobody yet)') : m.fromName || m.fromAddress),
+      el('span', { class: 'mail-date' }, shortDate(m.date)),
+      el('button', { class: 'mail-del', title: m.draft ? 'Delete this draft' : 'Delete (moves it to Trash; Undo puts it back)', 'aria-label': 'Delete', onclick: (e) => (e.stopPropagation(), deleteMail(m)) }, icon('delete'))
+    ),
     el('div', { class: 'mail-subject' }, m.subject),
     el('div', { class: 'mail-preview' }, m.preview),
     el(
@@ -897,6 +903,79 @@ async function open(m) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Delete (v9.4): the trash can on each email and in the reader
+// ---------------------------------------------------------------------------
+/** Takes one email off every list on screen. Returns a function that puts it back. */
+function takeOffScreen(m) {
+  const k = keyOf(m);
+  const lists = [M.messages, M.searchResults, M.drafts, ...[...M.labelMsgs.values()].map((x) => x.messages)].filter(Boolean);
+  const removed = [];
+  for (const list of lists) {
+    const i = list.findIndex((x) => keyOf(x) === k);
+    if (i >= 0) removed.push([list, i, list.splice(i, 1)[0]]);
+  }
+  return () => {
+    for (const [list, i, item] of removed.reverse()) if (!list.some((x) => keyOf(x) === k)) list.splice(Math.min(i, list.length), 0, item);
+  };
+}
+
+/** Moves an email to Trash in Gmail (Gmail keeps Trash for 30 days). Drafts are discarded. Undo puts it back. */
+async function deleteMail(m) {
+  if (m.draft) {
+    if (!(await confirmDialog('Delete this draft?', `“${m.subject || '(no subject)'}” will be removed from Drafts.`, 'Delete'))) return;
+  }
+  // The next email down gets selected, so you can keep reading (or keep deleting).
+  const shown = visible();
+  const at = shown.findIndex((x) => keyOf(x) === keyOf(m));
+  const wasOpen = M.selected === keyOf(m);
+  const next = wasOpen ? shown[at + 1] || shown[at - 1] || null : null;
+  const putBack = takeOffScreen(m);
+  if (wasOpen) M.selected = next && !next.draft ? keyOf(next) : null;
+  render();
+  updateBadge();
+  if (wasOpen && next && !next.draft) open(next);
+  try {
+    if (m.draft) {
+      await host.mail.deleteDraft(m.accountId, m.uid);
+      setStatus('Draft deleted.');
+      return;
+    }
+    const res = await host.mail.modify(m.accountId, [m.uid], { trash: true }, m.mailbox || 'INBOX');
+    const trashUids = res?.trashUids || [];
+    setStatus(`Moved to Trash: ${m.subject || '(no subject)'}`, false, trashUids.length ? { label: 'Undo', onclick: () => undoDelete(m, trashUids) } : null);
+  } catch (e) {
+    putBack();
+    render();
+    updateBadge();
+    toast("Couldn't delete it: " + (e.message || e), { error: true });
+  }
+}
+
+/** Delete key in Mail: deletes the email that's open in the reader. */
+export function deleteSelected() {
+  const m = current();
+  if (!m) return false;
+  deleteMail(m);
+  return true;
+}
+
+async function undoDelete(m, trashUids) {
+  setStatus('Putting it back…', true);
+  try {
+    await host.mail.moveBack(m.accountId, trashUids, '\\Trash');
+    // It's back in the inbox with a new ID, so load the lists again rather than reusing the old copy.
+    M.labelMsgs.clear();
+    setStatus('Put back in the inbox.');
+    if (M.view.type === 'search') searchAll(M.view.query);
+    else if (M.view.type === 'label') openLabel(M.view.accountId, { fullName: M.view.mailbox, name: M.view.name, kind: M.view.kind });
+    await refresh({ quiet: true });
+    render();
+  } catch (e) {
+    setStatus("Couldn't put it back: " + (e.message || e));
+  }
+}
+
 function renderReader() {
   const box = $('#mailRead');
   if (!box) return;
@@ -916,6 +995,7 @@ function renderReader() {
     el('button', { class: 'btn btn-tonal', onclick: () => reply(m, false) }, icon('reply'), 'Reply'),
     el('button', { class: 'btn btn-tonal', onclick: () => reply(m, true) }, icon('reply_all'), 'Reply all'),
     el('button', { class: 'btn btn-tonal', onclick: () => forward(m) }, icon('forward'), 'Forward'),
+    el('button', { class: 'btn btn-tonal mail-del-btn', title: 'Move to Trash (Del). Undo puts it back.', onclick: () => deleteMail(m) }, icon('delete'), 'Delete'),
     el('span', { class: 'mail-actions-sep' }),
     el('button', { class: 'btn btn-tonal ai-btn', onclick: () => summarize(m) }, icon('summarize'), 'Summarize'),
     el('button', { class: 'btn btn-tonal ai-btn', onclick: () => suggestReplies(m) }, icon('auto_awesome'), 'Suggest replies'),
@@ -1570,3 +1650,34 @@ export async function settingsChanged() {
 }
 
 export const mailState = M;
+
+/** Changes the search words from inside Mail and tells the search box at the top. */
+function setSearchText(q) {
+  M.search = q;
+  render();
+  window.dispatchEvent(new CustomEvent('pam:mailsearch', { detail: q }));
+}
+
+/** What the permanent search box at the top of the window (search.js) uses (v9.4). */
+export const searchApi = {
+  /** Narrows the emails on screen to ones that match (sender, subject, preview). */
+  filter(q) {
+    const backToInbox = !q && M.view.type === 'search'; // clearing the box leaves search results
+    if (M.search === q && !backToInbox) return;
+    M.search = q;
+    if (backToInbox) M.view = { type: 'inbox' };
+    if (!document.body.classList.contains('app-mail')) return; // shown the next time Mail opens
+    render();
+  },
+  /** Searches every message on the server (Gmail search words work). */
+  searchAll: (q) => searchAll(q),
+  /** How many loaded inbox emails match, for the "N emails match" line. */
+  countLoaded(q) {
+    const ql = (q || '').trim().toLowerCase();
+    if (!ql) return 0;
+    if (document.body.classList.contains('app-mail')) return visible().length;
+    return M.messages.filter((m) => !m.clutter && `${m.fromName} ${m.fromAddress} ${m.subject} ${m.preview}`.toLowerCase().includes(ql)).length;
+  },
+  /** True once at least one email account is set up. */
+  ready: () => signedIn().length > 0,
+};

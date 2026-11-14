@@ -2,6 +2,17 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.4.0 — Saturday, November 14, 2026
+**One search bar that's always there, and a delete button on every email**
+- **Permanent search bar** at the top of the window, in both Documents and Mail. Ctrl+F jumps to it from anywhere.
+  - **Documents:** finds words in the open document as you type and highlights them; shows "3 of 12". Enter = next match, Shift+Enter = previous, or use the up/down arrows in the box.
+  - **Mail:** narrows the emails on screen as you type ("Showing emails that match…" with **Show all**). Enter searches all mail on the server, every account (Gmail search words work: `from:tim`, `has:attachment`, `older_than:1y`). Esc clears it and goes back to the inbox.
+  - **Both at once:** the drop-down under the box offers the other side too. From Documents: "N emails match", "Search all mail for…". From Mail: "Find … in the open document". Recent files whose names match are listed in both, so you can open them straight from the search. Arrow keys pick a row, Enter opens it.
+  - The words carry over when you switch between Documents and Mail (Ctrl+1 / Ctrl+2).
+- **Delete button on every email:** a trash can on each email in the list (and **Delete** in the reader, or the Delete key) moves it to Gmail's Trash. The next email opens so you can keep going. **Undo** puts it back in the inbox. Gmail keeps Trash for 30 days, so nothing is gone for good. On a draft it asks first, then removes the draft.
+- The search box inside the mail list and the old floating Find bar are replaced by the new bar.
+- New code: `wwwroot/js/search.js`, `mail.searchApi`, `deleteMail` / `deleteSelected` in mail.js (uses the existing `mailModify` and `mailMoveBack` bridge commands; no Windows-side changes).
+
 ## v9.3.0 — Saturday, November 14, 2026
 **Drafts in every account, and Claude can clean up and organize your mail for you**
 - **Drafts are saved in Gmail.** What you write is saved to the From account's own Gmail Drafts folder a few seconds after you stop typing, so it also shows in Gmail on the web and your phone. **Save draft** (or Ctrl+S) saves right away.

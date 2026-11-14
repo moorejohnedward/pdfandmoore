@@ -87,3 +87,17 @@ Each entry records what was built, why, and the concepts behind it. CHANGELOG.md
 
 **Concepts:** IMAP APPEND/EXPUNGE and special-use mailboxes (RFC 6154), debouncing and promise queues, LLM tool use and agent loops, human-in-the-loop approval, designing reversible operations, test doubles.
 
+## 2026-11-14 (afternoon): v9.4, one search bar and a delete button
+
+**Problem:** Search lived in two different places (a pop-up Find bar for documents, a box inside the mail list), so I had to remember which one to use. And deleting an email meant going to Gmail.
+
+**Built**
+- **One search box in the top bar** that changes what it does with the tab you're on. A small module (`search.js`) owns the box and talks to the document and mail code through a handful of functions passed in by `app.js` (find, step, filter, searchAll…), so the box doesn't need to know how either side works inside.
+- **Search as you type with a debounce:** the search waits 220 ms after the last key. A run counter throws away results from older words, so a slow search for "hy" can't overwrite the results for "hydro".
+- **A drop-down of suggestions** (like a browser's address bar) that mixes results from both sides and recent files, with keyboard navigation.
+- **Delete with Undo:** the email is taken off the screen right away (an "optimistic update") and moved to Gmail's Trash in the background. If the server says no, it's put back. Undo moves it out of Trash using the new ID the server returned.
+- **Accessibility:** each email row became a focusable element with role="button" (a real button can't hold another button inside it), and keeps working with Enter, Space and Delete.
+- **Testing:** headless Chrome with a fake WebView2 host: find/next/previous, switching tabs, filtering, server search, delete, Undo, the Delete key, and the top bar at 1280, 1500 and 1920 wide.
+
+**Concepts:** separation of concerns and dependency injection, debouncing and stale-result races, optimistic UI updates with rollback, accessible custom controls, responsive flex layout.
+

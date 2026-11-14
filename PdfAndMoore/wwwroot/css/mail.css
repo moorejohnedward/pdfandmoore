@@ -285,3 +285,20 @@ html[data-theme='light'] .compose { background: #fff; }
 .mail-new + .mail-new { margin-top: -6px; }
 .compose-head .btn-text { color: #fff; }
 .compose-head .btn-text:hover { background: rgba(255, 255, 255, 0.18); }
+
+/* v9.4: shown while the search box at the top is narrowing the list */
+.mail-filter-note { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--text-2); }
+.mail-filter-note .ms { color: var(--pink); font-size: 18px; }
+
+/* v9.4: delete button right on each email, and in the reader */
+.mail-row { cursor: pointer; }
+.mail-row:focus-visible { outline: 2px solid var(--ocean); outline-offset: -2px; }
+.mail-del {
+  align-self: center;
+  flex: none; display: inline-grid; place-items: center; width: 32px; height: 32px; margin: -6px -8px -6px 0; border: 0; border-radius: 16px;
+  background: none; color: var(--muted); opacity: 0.6; transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.mail-del .ms { font-size: 20px; }
+.mail-row:hover .mail-del, .mail-row.on .mail-del, .mail-row:focus-within .mail-del { opacity: 1; }
+.mail-del:hover { background: color-mix(in srgb, #ff5f5f 18%, transparent); color: #ff5f5f; }
+.mail-del-btn:hover { color: #ff5f5f; }

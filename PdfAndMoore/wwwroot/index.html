@@ -40,6 +40,18 @@
         </div>
         <nav id="menubar" class="menubar" aria-label="Main menu"></nav>
       </div>
+      <!-- Permanent search bar (v9.4): searches the open document, your mail and recent files. Built by js/search.js -->
+      <div class="gsearch-wrap">
+        <div id="globalSearch" class="gsearch" role="search">
+          <span class="ms gs-glass">search</span>
+          <input id="gsInput" type="text" autocomplete="off" spellcheck="false" aria-label="Search documents and mail" placeholder="Search" />
+          <span id="gsCount" class="gs-count" aria-live="polite"></span>
+          <button id="gsPrev" class="icon-btn small gs-step" title="Previous match (Shift+Enter)" tabindex="-1"><span class="ms">keyboard_arrow_up</span></button>
+          <button id="gsNext" class="icon-btn small gs-step" title="Next match (Enter)" tabindex="-1"><span class="ms">keyboard_arrow_down</span></button>
+          <button id="gsClear" class="icon-btn small gs-clear" title="Clear (Esc)" tabindex="-1"><span class="ms">close</span></button>
+        </div>
+        <div id="gsPop" class="gs-pop" role="listbox"></div>
+      </div>
       <div class="top-actions">
         <button id="btnClaudeTop" class="btn btn-tonal claude-btn" title="Ask Claude (Ctrl+J)"><span class="ms">auto_awesome</span><span>Ask Claude</span></button>
         <button id="btnSave" class="btn btn-primary save-btn" title="Save (Ctrl+S)"><span class="ms">save</span><span>Save</span></button>
@@ -104,16 +116,6 @@
 
     <!-- Page counter & zoom (bottom) -->
     <div id="pageCounter" class="page-counter"></div>
-
-    <!-- Find bar -->
-    <div id="findBar" class="find-bar">
-      <span class="ms">search</span>
-      <input id="findInput" placeholder="Find in document" />
-      <span id="findCount" class="muted"></span>
-      <button class="icon-btn small" id="findPrev" title="Previous"><span class="ms">keyboard_arrow_up</span></button>
-      <button class="icon-btn small" id="findNext" title="Next"><span class="ms">keyboard_arrow_down</span></button>
-      <button class="icon-btn small" id="findClose" title="Close"><span class="ms">close</span></button>
-    </div>
 
     <!-- Floating menu shown when text is selected -->
     <div id="selMenu" class="sel-menu">
