@@ -324,13 +324,17 @@ export const mail = {
   getSettings: () => (webview ? callHost('mailGetSettings') : Promise.resolve(null)),
   saveSettings: (settings) => mailCall('mailSaveSettings', { json: JSON.stringify(settings) }),
   test: (accountId) => mailCall('mailTest', { accountId }),
-  fetch: (accountId = null) => mailCall('mailFetch', accountId ? { accountId } : {}),
-  message: (accountId, uid) => mailCall('mailMessage', { accountId, uid }),
-  attachment: async (accountId, uid, index) => {
-    const res = await mailCall('mailAttachment', { accountId, uid, index });
+  /** Newest messages of a folder (default INBOX). skip = how many newest are already loaded. */
+  fetch: (accountId = null, { mailbox = null, count = null, skip = 0 } = {}) =>
+    mailCall('mailFetch', { ...(accountId ? { accountId } : {}), ...(mailbox ? { mailbox } : {}), ...(count ? { count } : {}), skip }),
+  folders: (accountId) => mailCall('mailFolders', { accountId }),
+  search: (query, accountId = null) => mailCall('mailSearch', { query, ...(accountId ? { accountId } : {}) }),
+  message: (accountId, uid, mailbox = 'INBOX') => mailCall('mailMessage', { accountId, uid, mailbox }),
+  attachment: async (accountId, uid, index, mailbox = 'INBOX') => {
+    const res = await mailCall('mailAttachment', { accountId, uid, index, mailbox });
     return { name: res.name, bytes: base64ToBytes(res.base64) };
   },
-  saveAttachment: (accountId, uid, index) => mailCall('mailSaveAttachment', { accountId, uid, index }),
+  saveAttachment: (accountId, uid, index, mailbox = 'INBOX') => mailCall('mailSaveAttachment', { accountId, uid, index, mailbox }),
   /** attachments: [{name, bytes}] */
   send: ({ accountId, from, to, cc, bcc, subject, body, attachments = [], inReplyTo = null, references = [] }) =>
     mailCall('mailSend', {

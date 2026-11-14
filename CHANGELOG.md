@@ -2,6 +2,16 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.1.0 — Friday, November 13, 2026
+**Mail sorts the way your Gmail does, and all your mail is reachable**
+- **Sorting uses your Gmail labels and tabs.** Mail labeled Business, Business/Square, Millersville (and its sub-labels), Colorado Technical University, VA & Benefits, PADI/Diving, Finance, Travel or fun goes straight to the matching smart folder. Gmail's Promotions, Social and Updates tabs become smart folders too. Claude only sorts what's left, so Smart Sort is faster and cheaper.
+- **New smart folders:** VA & Benefits, Diving, Finance, Travel, Promotions, Updates, Social and fun, alongside KHT, Dive Moore, Museum, Business, School and Personal. Existing settings are upgraded automatically, and any folders and rules you added are kept.
+- **Rules understand Gmail:** type `label:Business` to match a Gmail label (and the labels under it), or `category:promotions` for a Gmail tab. Tab rules always run last, so a rule you add wins over "it's in Promotions".
+- **Gmail labels in the sidebar:** every label with mail in it (plus Sent, Starred and All Mail) is listed under each account with its unread count. Click one to read that label, including mail your Gmail filters keep out of the inbox.
+- **Load older:** the inbox now loads the newest 200 per account (was 50) and shows "Showing the newest 200 of 66,069". **Load older** brings in the next batch, and older pages stay loaded when the inbox refreshes.
+- **Search all mail:** type in the search box and press Enter to search the whole mailbox on the server, not just what's loaded. Gmail search words work (`from:tim`, `has:attachment`, `older_than:1y`).
+- New code: `MailService.FetchAsync` / `ListFoldersAsync` / `SearchAsync` (Gmail X-GM-LABELS and X-GM-RAW), `mailFolders` and `mailSearch` bridge commands.
+
 ## v9.0.0 — Friday, November 13, 2026
 **Mail is built in, plus a new dark look with big, easy buttons**
 - **Mail tab:** switch between **Documents** and **Mail** at the top left (Ctrl+1 / Ctrl+2). One inbox for every account and business address, color-coded by account, with an unread count on the Mail button. Times show in military time (1750).

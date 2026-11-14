@@ -13,7 +13,6 @@ const M = {
   messages: [],
   account: null, // account id filter, null = all
   folder: 'all',
-  search: '',
   selected: null, // message key
   bodies: new Map(), // key -> { text, html, attachments }
   summaries: new Map(),
@@ -24,13 +23,21 @@ const M = {
   lastRefresh: null,
   errors: [],
   onOpenFile: null, // set by app.js: opens attachment bytes in the document editor
+  view: { type: 'inbox' }, // inbox (smart folders) | label (one Gmail label) | search (whole mailbox)
+  labels: new Map(), // accountId -> [{name, fullName, kind, total, unread}]
+  labelMsgs: new Map(), // "accountId|mailbox" -> { messages, total }
+  totals: {}, // accountId -> how many messages that inbox holds on the server
+  search: '',
+  searchResults: null,
+  showLabels: true,
 };
 
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
-const keyOf = (m) => `${m.accountId}|${m.uid}`;
-const current = () => M.messages.find((m) => keyOf(m) === M.selected) || null;
+const keyOf = (m) => `${m.accountId}|${m.mailbox || 'INBOX'}|${m.uid}`;
+const allLoaded = () => [...M.messages, ...[...M.labelMsgs.values()].flatMap((x) => x.messages), ...(M.searchResults || [])];
+const current = () => allLoaded().find((m) => keyOf(m) === M.selected) || null;
 const accountById = (id) => (M.settings?.accounts || []).find((a) => a.id === id);
 const allIdentities = () => (M.settings?.accounts || []).flatMap((a) => a.identities.map((i) => ({ ...i, accountId: a.id, accountEmail: a.email })));
 const signedIn = () => (M.settings?.accounts || []).filter((a) => a.hasPassword);
@@ -44,6 +51,14 @@ const FOLDER_LOOK = {
   School: ['school', '#3fc28a'],
   Personal: ['home', '#ff5fa2'],
   Newsletters: ['newspaper', '#8fa6bd'],
+  'VA & Benefits': ['military_tech', '#5ab8ff'],
+  Diving: ['scuba_diving', '#26c6da'],
+  Finance: ['payments', '#3fc28a'],
+  Travel: ['flight', '#ffb74d'],
+  Promotions: ['sell', '#8fa6bd'],
+  Updates: ['info', '#9fa8da'],
+  Social: ['groups', '#ce93d8'],
+  fun: ['local_fire_department', '#ff8a80'],
 };
 const folderLook = (f) => FOLDER_LOOK[f] || ['folder', '#8fa6bd'];
 
@@ -106,7 +121,20 @@ function ruleFolder(m) {
     if (id.folder && id.folder !== 'Personal' && (m.to + ' ' + m.cc).toLowerCase().includes(id.address.toLowerCase())) return id.folder;
   }
   const hay = `${m.fromName} ${m.fromAddress} ${m.to} ${m.subject}`.toLowerCase();
-  for (const r of M.settings?.rules || []) if (r.match && hay.includes(r.match.toLowerCase())) return r.folder;
+  const labels = (m.labels || []).map((l) => l.toLowerCase());
+  // Gmail-tab rules (category:) always come last, so any rule you add beats "it's in Promotions".
+  const rules = [...(M.settings?.rules || [])].sort((a, b) => ((a.match || '').toLowerCase().startsWith('category:')) - ((b.match || '').toLowerCase().startsWith('category:')));
+  for (const r of rules) {
+    const match = (r.match || '').trim().toLowerCase();
+    if (!match) continue;
+    if (match.startsWith('label:')) {
+      // "label:VA" matches the Gmail label "VA" and ones under it or starting with it ("VA & Benefits", "VA/Claims").
+      const want = match.slice(6).trim();
+      if (labels.some((l) => l === want || l.startsWith(want + '/') || l.startsWith(want + ' '))) return r.folder;
+    } else if (match.startsWith('category:')) {
+      if (m.category && m.category === match.slice(9).trim()) return r.folder;
+    } else if (hay.includes(match)) return r.folder;
+  }
   return null;
 }
 function applySorting(m) {
@@ -188,15 +216,21 @@ export async function refresh({ quiet = false } = {}) {
   try {
     const res = await host.mail.fetch();
     const old = new Map(M.messages.map((m) => [keyOf(m), m]));
-    M.messages = (res.messages || []).map((m) => {
+    const fresh = (res.messages || []).map((m) => {
       const prev = old.get(keyOf(m));
       if (prev && prev.read && !m.read) m.read = true; // opened here a moment ago
       applySorting(m);
       return m;
     });
-    M.messages.sort((a, b) => b.date - a.date);
+    // Keep older pages that were loaded with "Load older" (anything older than this refresh reached, per account).
+    const oldest = {};
+    for (const m of fresh) oldest[m.accountId] = Math.min(oldest[m.accountId] ?? Infinity, m.date);
+    const kept = M.messages.filter((m) => oldest[m.accountId] !== undefined && m.date < oldest[m.accountId]);
+    M.messages = dedupe([...fresh, ...kept]).sort((a, b) => b.date - a.date);
     M.errors = res.errors || [];
+    M.totals = res.totals || {};
     M.lastRefresh = Date.now();
+    loadLabels(); // in the background: Gmail labels for the sidebar
     render();
     setStatus(M.errors.length ? "Couldn't reach " + M.errors.join('; ') : `Up to date at ${pad(new Date().getHours())}${pad(new Date().getMinutes())}.`);
     if (M.settings.autoSort && aiMode() === 'api') await smartSort({ onlyNew: true });
@@ -206,6 +240,93 @@ export async function refresh({ quiet = false } = {}) {
     M.loading = false;
     updateBadge();
   }
+}
+
+/** Gmail labels (IMAP folders) for each signed-in account, with server counts. */
+async function loadLabels() {
+  for (const a of signedIn()) {
+    try {
+      M.labels.set(a.id, await host.mail.folders(a.id));
+    } catch {
+      /* labels are a bonus; the inbox still works */
+    }
+  }
+  if (document.body.classList.contains('app-mail')) render();
+}
+
+/** Opens one Gmail label (or Sent, Starred…) of one account. */
+async function openLabel(accountId, f) {
+  M.view = { type: 'label', accountId, mailbox: f.fullName, name: f.name, kind: f.kind };
+  M.selected = null;
+  const k = accountId + '|' + f.fullName;
+  render();
+  if (M.labelMsgs.has(k)) return;
+  setStatus('Opening ' + f.name + '…', true);
+  try {
+    const res = await host.mail.fetch(accountId, { mailbox: f.fullName, count: 100 });
+    const messages = (res.messages || []).map((m) => (applySorting(m), m)).sort((a, b) => b.date - a.date);
+    M.labelMsgs.set(k, { messages, total: (res.totals || {})[accountId] || messages.length });
+    setStatus('');
+    render();
+  } catch (e) {
+    setStatus(e.message);
+  }
+}
+
+/** Loads the next batch of older messages for what's on screen. */
+async function loadOlder() {
+  setStatus('Loading older mail…', true);
+  try {
+    if (M.view.type === 'label') {
+      const k = M.view.accountId + '|' + M.view.mailbox;
+      const cur = M.labelMsgs.get(k);
+      const res = await host.mail.fetch(M.view.accountId, { mailbox: M.view.mailbox, count: 100, skip: cur.messages.length });
+      const more = (res.messages || []).map((m) => (applySorting(m), m));
+      cur.messages = dedupe([...cur.messages, ...more]).sort((a, b) => b.date - a.date);
+    } else {
+      const batch = M.settings.fetchCount || 200;
+      for (const a of signedIn().filter((a) => !M.account || a.id === M.account)) {
+        const have = M.messages.filter((m) => m.accountId === a.id).length;
+        if (M.totals[a.id] !== undefined && have >= M.totals[a.id]) continue;
+        const res = await host.mail.fetch(a.id, { count: batch, skip: have });
+        const more = (res.messages || []).map((m) => (applySorting(m), m));
+        M.messages = dedupe([...M.messages, ...more]).sort((x, y) => y.date - x.date);
+      }
+    }
+    setStatus('');
+    render();
+    if (M.view.type === 'inbox' && M.settings.autoSort && aiMode() === 'api') await smartSort({ onlyNew: true });
+  } catch (e) {
+    setStatus(e.message);
+  }
+}
+
+/** Searches every message in the mailbox on the server (Gmail search words work too). */
+async function searchAll(query) {
+  if (!query.trim()) return;
+  M.view = { type: 'search', query };
+  M.selected = null;
+  M.searchResults = [];
+  render();
+  setStatus(`Searching all mail for “${query}”…`, true);
+  try {
+    const res = await host.mail.search(query, M.account);
+    M.searchResults = (res.messages || []).map((m) => (applySorting(m), m)).sort((a, b) => b.date - a.date);
+    setStatus(res.errors?.length ? "Couldn't search " + res.errors.join('; ') : `Found ${M.searchResults.length}${M.searchResults.length >= 100 ? '+' : ''}.`);
+    render();
+  } catch (e) {
+    setStatus(e.message);
+  }
+}
+
+function dedupe(list) {
+  const seen = new Set();
+  return list.filter((m) => {
+    const k = keyOf(m);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 function updateBadge() {
@@ -234,8 +355,11 @@ function folders() {
 }
 
 function visible() {
-  const f = folders().find((x) => x.id === M.folder) || folders()[0];
   const q = M.search.toLowerCase();
+  const textMatch = (m) => !q || `${m.fromName} ${m.fromAddress} ${m.subject} ${m.preview}`.toLowerCase().includes(q);
+  if (M.view.type === 'search') return M.searchResults || [];
+  if (M.view.type === 'label') return (M.labelMsgs.get(M.view.accountId + '|' + M.view.mailbox)?.messages || []).filter(textMatch);
+  const f = folders().find((x) => x.id === M.folder) || folders()[0];
   return M.messages.filter(
     (m) =>
       (!M.account || m.accountId === M.account) &&
@@ -295,18 +419,46 @@ function renderSide() {
     );
 
   const accounts = [
-    navBtn(!M.account, '#5ab8ff', 'all_inbox', 'All accounts', 'Everything together', unread(() => true), () => ((M.account = null), render())),
+    navBtn(!M.account, '#5ab8ff', 'all_inbox', 'All accounts', 'Everything together', unread(() => true), () => ((M.account = null), (M.view = { type: 'inbox' }), render())),
     ...M.settings.accounts.map((a) =>
-      navBtn(M.account === a.id, a.color, null, a.name || a.email, a.hasPassword ? a.email : 'Needs app password', unread((m) => m.accountId === a.id), () => ((M.account = a.id), render()))
+      navBtn(M.account === a.id, a.color, null, a.name || a.email, a.hasPassword ? a.email : 'Needs app password', unread((m) => m.accountId === a.id), () => ((M.account = a.id), (M.view = { type: 'inbox' }), render()))
     ),
   ];
   const folderBtns = folders().map((f) =>
     navBtn(
-      M.folder === f.id, f.color, f.icon, f.name, '',
+      M.view.type === 'inbox' && M.folder === f.id, f.color, f.icon, f.name, '',
       M.messages.filter((m) => (!M.account || m.accountId === M.account) && f.match(m) && (f.id === 'reply' || !m.read)).length,
-      () => ((M.folder = f.id), (M.selected = null), render())
+      () => ((M.folder = f.id), (M.view = { type: 'inbox' }), (M.selected = null), render())
     )
   );
+
+  // Gmail labels, per account (Sent, Starred and the labels John made in Gmail)
+  const LABEL_ICON = { sent: 'send', starred: 'star', important: 'label_important', all: 'archive', drafts: 'draft' };
+  const labelSections = signedIn()
+    .filter((a) => !M.account || a.id === M.account)
+    .map((a) => {
+      const list = (M.labels.get(a.id) || []).filter((f) => ['sent', 'starred', 'all'].includes(f.kind) || (f.kind === 'label' && f.total > 0));
+      if (!list.length) return null;
+      list.sort((x, y) => (x.kind === 'label') - (y.kind === 'label') || x.fullName.localeCompare(y.fullName));
+      return [
+        el('div', { class: 'mail-sub' }, a.name || a.email),
+        list.map((f) => {
+          const depth = f.kind === 'label' ? f.fullName.split('/').length - 1 : 0;
+          const on = M.view.type === 'label' && M.view.accountId === a.id && M.view.mailbox === f.fullName;
+          const b = navBtn(on, a.color, LABEL_ICON[f.kind] || 'label', f.kind === 'all' ? 'All Mail' : f.name, '', f.kind === 'label' ? f.unread : 0, () => openLabel(a.id, f));
+          b.classList.add('mail-label');
+          b.style.paddingLeft = 12 + depth * 18 + 'px';
+          return b;
+        }),
+      ];
+    })
+    .filter(Boolean);
+  const labelsBlock = labelSections.length
+    ? [
+        el('button', { class: 'mail-sec mail-sec-toggle', onclick: () => ((M.showLabels = !M.showLabels), render()) }, 'Gmail labels', icon(M.showLabels ? 'expand_less' : 'expand_more')),
+        ...(M.showLabels ? labelSections.flat(Infinity) : []),
+      ]
+    : '';
   return el(
     'aside',
     { class: 'mail-side' },
@@ -315,15 +467,23 @@ function renderSide() {
     accounts,
     el('div', { class: 'mail-sec' }, 'Smart folders'),
     folderBtns,
+    labelsBlock,
     el('div', { class: 'grow' }),
     el('button', { class: 'mail-nav subtle', onclick: () => window.dispatchEvent(new CustomEvent('pam:settings', { detail: 'mail' })) }, el('span', { class: 'mail-nav-icon' }, icon('settings')), el('span', { class: 'mail-nav-text' }, 'Email settings'))
   );
 }
 
 function renderList() {
-  const f = folders().find((x) => x.id === M.folder) || folders()[0];
+  const sf = folders().find((x) => x.id === M.folder) || folders()[0];
+  const acct = M.view.accountId ? accountById(M.view.accountId) : null;
+  const f =
+    M.view.type === 'label' ? { name: M.view.name, icon: 'label', color: acct?.color || '#5ab8ff' } :
+    M.view.type === 'search' ? { name: `Search: ${M.view.query}`, icon: 'search', color: '#9b6bff' } : sf;
   const items = visible();
-  const search = el('input', { class: 'mail-search', type: 'search', placeholder: 'Search sender, subject or text…', value: M.search });
+  const search = el('input', { class: 'mail-search', type: 'search', placeholder: 'Search… (press Enter to search all mail)', title: 'Gmail search words work too, like from:tim or has:attachment', value: M.search });
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') searchAll(search.value);
+  });
   search.addEventListener(
     'input',
     debounce(() => {
@@ -357,9 +517,35 @@ function renderList() {
       { class: 'mail-rows' },
       items.length
         ? items.map(row)
-        : el('div', { class: 'mail-empty' }, icon('celebration'), el('div', {}, M.loading ? 'Loading…' : 'Nothing here. Nice!'))
+        : el('div', { class: 'mail-empty' }, icon('celebration'), el('div', {}, M.loading ? 'Loading…' : M.view.type === 'search' ? 'Nothing found.' : 'Nothing here. Nice!')),
+      listFooter()
     )
   );
+}
+
+/** "Showing the newest 200 of 66,069" + Load older, and a server-search shortcut. */
+function listFooter() {
+  const parts = [];
+  if (M.search && M.view.type !== 'search')
+    parts.push(el('button', { class: 'btn btn-tonal', onclick: () => searchAll(M.search) }, icon('travel_explore'), `Search all mail for “${M.search}”`));
+  let loaded = 0;
+  let total = 0;
+  if (M.view.type === 'label') {
+    const cur = M.labelMsgs.get(M.view.accountId + '|' + M.view.mailbox);
+    loaded = cur?.messages.length || 0;
+    total = cur?.total || 0;
+  } else if (M.view.type === 'inbox') {
+    for (const a of signedIn().filter((a) => !M.account || a.id === M.account)) {
+      loaded += M.messages.filter((m) => m.accountId === a.id).length;
+      total += M.totals[a.id] || 0;
+    }
+  }
+  if (M.view.type !== 'search' && total > 0) {
+    parts.push(el('div', { class: 'mail-more-text' }, `Showing the newest ${loaded.toLocaleString()} of ${total.toLocaleString()}${M.view.type === 'inbox' ? ' in the inbox' : ''}.`));
+    if (loaded < total) parts.push(el('button', { class: 'btn btn-tonal', onclick: loadOlder }, icon('expand_more'), 'Load older'));
+  }
+  if (M.view.type === 'search') parts.push(el('button', { class: 'btn btn-text', onclick: () => ((M.view = { type: 'inbox' }), (M.search = ''), render()) }, icon('arrow_back'), 'Back to inbox'));
+  return parts.length ? el('div', { class: 'mail-more' }, parts) : '';
 }
 
 function row(m) {
@@ -386,7 +572,7 @@ async function open(m) {
   render();
   if (M.bodies.has(keyOf(m))) return;
   try {
-    const body = await host.mail.message(m.accountId, m.uid);
+    const body = await host.mail.message(m.accountId, m.uid, m.mailbox || 'INBOX');
     M.bodies.set(keyOf(m), body);
     m.read = true;
     updateBadge();
@@ -494,7 +680,7 @@ const sizeText = (b) => (!b ? '' : b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math
 async function openAttachment(m, a) {
   try {
     setStatus('Opening ' + a.name + '…', true);
-    const file = await host.mail.attachment(m.accountId, m.uid, a.index);
+    const file = await host.mail.attachment(m.accountId, m.uid, a.index, m.mailbox || 'INBOX');
     setStatus('');
     if (M.onOpenFile) await M.onOpenFile(file);
   } catch (e) {
@@ -503,7 +689,7 @@ async function openAttachment(m, a) {
 }
 async function saveAttachment(m, a) {
   try {
-    const path = await host.mail.saveAttachment(m.accountId, m.uid, a.index);
+    const path = await host.mail.saveAttachment(m.accountId, m.uid, a.index, m.mailbox || 'INBOX');
     if (path) toast('Saved to ' + path);
   } catch (e) {
     toast(e.message, { error: true });
@@ -627,7 +813,7 @@ async function forward(m) {
     if (keep) {
       setStatus('Getting attachments…', true);
       try {
-        attachments = await Promise.all(b.attachments.map((a) => host.mail.attachment(m.accountId, m.uid, a.index)));
+        attachments = await Promise.all(b.attachments.map((a) => host.mail.attachment(m.accountId, m.uid, a.index, m.mailbox || 'INBOX')));
       } catch (e) {
         toast(e.message, { error: true });
       }

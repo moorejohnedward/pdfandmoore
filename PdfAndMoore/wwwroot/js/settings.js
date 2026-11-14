@@ -147,7 +147,7 @@ export async function openSettings(startTab = 'look') {
       el('p', { class: 'hint' }, 'One per line. "All business" in Mail collects KHT, Dive Moore, Museum and Business.'),
       folderBox,
       el('h3', {}, 'Keyword rules'),
-      el('p', { class: 'hint' }, 'Free and instant, and they always beat Claude\'s guess. First match wins.'),
+      el('p', { class: 'hint' }, 'Free and instant, and they always beat Claude\'s guess. First match wins. Type label:Business to use a Gmail label (and the labels under it), or category:promotions for a Gmail tab (promotions, social, updates, forums, primary). Anything else matches the sender, recipients or subject.'),
       rulesBox,
       el('h3', {}, 'More'),
       el('label', { class: 'check-row' }, autoSort, 'Let Claude sort new mail automatically (API key option)'),

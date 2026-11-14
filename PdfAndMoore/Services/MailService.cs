@@ -2,6 +2,7 @@ using System.Net;
 using MailKit;
 using MailKit.Net.Imap;
 using MailKit.Net.Smtp;
+using MailKit.Search;
 using MailKit.Security;
 using MimeKit;
 
@@ -34,53 +35,150 @@ public sealed class MailService
         }
     }
 
-    public async Task<List<MailSummary>> FetchInboxAsync(MailAccount a, int count, CancellationToken ct = default)
+    private static readonly string[] Categories = { "promotions", "social", "updates", "forums" };
+
+    private static async Task<IMailFolder> OpenFolderAsync(ImapClient client, string? mailbox, FolderAccess access, CancellationToken ct)
+    {
+        IMailFolder folder = string.IsNullOrEmpty(mailbox) || mailbox.Equals("INBOX", StringComparison.OrdinalIgnoreCase)
+            ? client.Inbox
+            : await client.GetFolderAsync(mailbox, ct);
+        await folder.OpenAsync(access, ct);
+        return folder;
+    }
+
+    private static bool IsGmail(ImapClient client) => (client.Capabilities & ImapCapabilities.GMailExt1) != 0;
+
+    /// <summary>
+    /// Reads one page of a folder, newest first. skip = how many of the newest messages were already loaded
+    /// (for "Load older"). On Gmail, each message also gets its labels and its inbox tab (Primary, Promotions…).
+    /// </summary>
+    public async Task<MailPage> FetchAsync(MailAccount a, string? mailbox, int count, int skip, CancellationToken ct = default)
     {
         using var client = await OpenImapAsync(a, ct);
-        var inbox = client.Inbox;
-        await inbox.OpenAsync(FolderAccess.ReadOnly, ct);
+        var folder = await OpenFolderAsync(client, mailbox, FolderAccess.ReadOnly, ct);
+        var page = new MailPage { Total = folder.Count, Unread = folder.Unread };
 
-        var list = new List<MailSummary>();
-        if (inbox.Count > 0)
+        int end = folder.Count - 1 - Math.Max(0, skip);
+        if (end >= 0)
         {
-            int start = Math.Max(0, inbox.Count - count);
+            int start = Math.Max(0, end - count + 1);
+            bool gmail = IsGmail(client);
             var items = MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.Flags |
                         MessageSummaryItems.PreviewText | MessageSummaryItems.References | MessageSummaryItems.BodyStructure;
-            foreach (var s in await inbox.FetchAsync(start, -1, items, ct))
+            if (gmail) items |= MessageSummaryItems.GMailLabels;
+
+            var summaries = await folder.FetchAsync(start, end, items, ct);
+            foreach (var s in summaries) page.Messages.Add(ToSummary(a, folder.FullName, s));
+
+            // Gmail's tabs aren't labels over IMAP, so ask Gmail which of these messages are in each tab.
+            if (gmail && folder == client.Inbox && page.Messages.Count > 0)
             {
-                var env = s.Envelope;
-                var from = env?.From?.Mailboxes.FirstOrDefault();
-                list.Add(new MailSummary
+                var uids = summaries.Select(x => x.UniqueId).ToList();
+                var byUid = page.Messages.ToDictionary(m => m.Uid);
+                foreach (var cat in Categories)
                 {
-                    AccountId = a.Id,
-                    Uid = s.UniqueId.Id,
-                    MessageId = env?.MessageId ?? "",
-                    References = s.References?.ToList() ?? new List<string>(),
-                    FromName = from?.Name ?? "",
-                    FromAddress = from?.Address ?? "",
-                    To = env?.To?.ToString() ?? "",
-                    Cc = env?.Cc?.ToString() ?? "",
-                    Subject = string.IsNullOrWhiteSpace(env?.Subject) ? "(no subject)" : env!.Subject!,
-                    Date = (env?.Date ?? DateTimeOffset.Now).ToUnixTimeMilliseconds(),
-                    Preview = (s.PreviewText ?? "").Trim(),
-                    Read = s.Flags.HasValue && s.Flags.Value.HasFlag(MessageFlags.Seen),
-                    HasAttachments = s.Attachments?.Any() == true,
-                });
+                    try
+                    {
+                        var hits = await folder.SearchAsync(SearchQuery.Uids(uids).And(SearchQuery.GMailRawSearch("category:" + cat)), ct);
+                        foreach (var uid in hits)
+                            if (byUid.TryGetValue(uid.Id, out var m)) m.Category = cat;
+                    }
+                    catch (ImapCommandException) { /* not supported for this account: skip tabs */ }
+                }
+                foreach (var m in page.Messages) if (m.Category.Length == 0) m.Category = "primary";
             }
+        }
+        await client.DisconnectAsync(true, ct);
+        return page;
+    }
+
+    /// <summary>Lists the account's folders (Gmail labels) with message and unread counts.</summary>
+    public async Task<List<MailFolderInfo>> ListFoldersAsync(MailAccount a, CancellationToken ct = default)
+    {
+        using var client = await OpenImapAsync(a, ct);
+        var list = new List<MailFolderInfo>();
+        var ns = client.PersonalNamespaces.FirstOrDefault() ?? throw new InvalidOperationException("This mail server didn't list any folders.");
+        var folders = await client.GetFoldersAsync(ns, StatusItems.Count | StatusItems.Unread, false, ct);
+        foreach (var f in folders)
+        {
+            if ((f.Attributes & (FolderAttributes.NoSelect | FolderAttributes.NonExistent)) != 0) continue;
+            string kind =
+                f.FullName.Equals("INBOX", StringComparison.OrdinalIgnoreCase) ? "inbox" :
+                (f.Attributes & FolderAttributes.Sent) != 0 ? "sent" :
+                (f.Attributes & FolderAttributes.All) != 0 ? "all" :
+                (f.Attributes & FolderAttributes.Flagged) != 0 ? "starred" :
+                (f.Attributes & FolderAttributes.Important) != 0 ? "important" :
+                (f.Attributes & FolderAttributes.Drafts) != 0 ? "drafts" :
+                (f.Attributes & FolderAttributes.Junk) != 0 ? "spam" :
+                (f.Attributes & FolderAttributes.Trash) != 0 ? "trash" : "label";
+            list.Add(new MailFolderInfo { Name = f.Name, FullName = f.FullName, Kind = kind, Total = f.Count, Unread = f.Unread });
         }
         await client.DisconnectAsync(true, ct);
         return list;
     }
 
-    /// <summary>Downloads one message, returns its text/HTML and attachment list, and marks it read.</summary>
-    public async Task<MailMessageBody> GetMessageAsync(MailAccount a, uint uid, CancellationToken ct = default)
+    /// <summary>Searches the whole mailbox (Gmail search words work, e.g. "from:tim has:attachment"). Newest first.</summary>
+    public async Task<MailPage> SearchAsync(MailAccount a, string query, int max, CancellationToken ct = default)
     {
         using var client = await OpenImapAsync(a, ct);
-        var inbox = client.Inbox;
-        await inbox.OpenAsync(FolderAccess.ReadWrite, ct);
+        bool gmail = IsGmail(client);
+        IMailFolder folder = client.Inbox;
+        if ((client.Capabilities & (ImapCapabilities.SpecialUse | ImapCapabilities.XList)) != 0 && client.GetFolder(SpecialFolder.All) is { } all)
+            folder = all;
+        await folder.OpenAsync(FolderAccess.ReadOnly, ct);
+
+        SearchQuery q = gmail
+            ? SearchQuery.GMailRawSearch(query)
+            : SearchQuery.SubjectContains(query).Or(SearchQuery.FromContains(query)).Or(SearchQuery.BodyContains(query));
+        var uids = await folder.SearchAsync(q, ct);
+        var page = new MailPage { Total = uids.Count };
+        var newest = uids.OrderByDescending(u => u.Id).Take(max).ToList();
+        if (newest.Count > 0)
+        {
+            var items = MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.Flags |
+                        MessageSummaryItems.PreviewText | MessageSummaryItems.References | MessageSummaryItems.BodyStructure;
+            if (gmail) items |= MessageSummaryItems.GMailLabels;
+            foreach (var s in await folder.FetchAsync(newest, items, ct)) page.Messages.Add(ToSummary(a, folder.FullName, s));
+        }
+        await client.DisconnectAsync(true, ct);
+        return page;
+    }
+
+    private static MailSummary ToSummary(MailAccount a, string mailbox, IMessageSummary s)
+    {
+        var env = s.Envelope;
+        var from = env?.From?.Mailboxes.FirstOrDefault();
+        var labels = s.GMailLabels ?? (IList<string>)Array.Empty<string>();
+        return new MailSummary
+        {
+            AccountId = a.Id,
+            Mailbox = mailbox,
+            Uid = s.UniqueId.Id,
+            MessageId = env?.MessageId ?? "",
+            References = s.References?.ToList() ?? new List<string>(),
+            FromName = from?.Name ?? "",
+            FromAddress = from?.Address ?? "",
+            To = env?.To?.ToString() ?? "",
+            Cc = env?.Cc?.ToString() ?? "",
+            Subject = string.IsNullOrWhiteSpace(env?.Subject) ? "(no subject)" : env!.Subject!,
+            Date = (env?.Date ?? DateTimeOffset.Now).ToUnixTimeMilliseconds(),
+            Preview = (s.PreviewText ?? "").Trim(),
+            Read = s.Flags.HasValue && s.Flags.Value.HasFlag(MessageFlags.Seen),
+            Starred = s.Flags.HasValue && s.Flags.Value.HasFlag(MessageFlags.Flagged),
+            HasAttachments = s.Attachments?.Any() == true,
+            // System labels look like "\\Important"; keep only the user's own labels.
+            Labels = labels.Where(l => !l.StartsWith('\\')).ToList(),
+        };
+    }
+
+    /// <summary>Downloads one message, returns its text/HTML and attachment list, and marks it read.</summary>
+    public async Task<MailMessageBody> GetMessageAsync(MailAccount a, string? mailbox, uint uid, CancellationToken ct = default)
+    {
+        using var client = await OpenImapAsync(a, ct);
+        var folder = await OpenFolderAsync(client, mailbox, FolderAccess.ReadWrite, ct);
         var id = new UniqueId(uid);
-        var message = await inbox.GetMessageAsync(id, ct);
-        await inbox.AddFlagsAsync(id, MessageFlags.Seen, true, ct);
+        var message = await folder.GetMessageAsync(id, ct);
+        await folder.AddFlagsAsync(id, MessageFlags.Seen, true, ct);
         await client.DisconnectAsync(true, ct);
 
         return new MailMessageBody
@@ -98,12 +196,11 @@ public sealed class MailService
     }
 
     /// <summary>Returns one attachment's bytes (to open it in PDF and Moore or save it).</summary>
-    public async Task<(string Name, byte[] Bytes)> GetAttachmentAsync(MailAccount a, uint uid, int index, CancellationToken ct = default)
+    public async Task<(string Name, byte[] Bytes)> GetAttachmentAsync(MailAccount a, string? mailbox, uint uid, int index, CancellationToken ct = default)
     {
         using var client = await OpenImapAsync(a, ct);
-        var inbox = client.Inbox;
-        await inbox.OpenAsync(FolderAccess.ReadOnly, ct);
-        var message = await inbox.GetMessageAsync(new UniqueId(uid), ct);
+        var folder = await OpenFolderAsync(client, mailbox, FolderAccess.ReadOnly, ct);
+        var message = await folder.GetMessageAsync(new UniqueId(uid), ct);
         await client.DisconnectAsync(true, ct);
 
         var part = message.Attachments.ElementAtOrDefault(index) ?? throw new InvalidOperationException("That attachment wasn't found.");

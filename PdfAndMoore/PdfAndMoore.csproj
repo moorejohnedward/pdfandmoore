@@ -12,7 +12,7 @@
     <Product>PDF and Moore</Product>
     <Company>Moore</Company>
     <Description>PDF editor, Office editors and email in one app, with Claude as an AI assistant.</Description>
-    <Version>9.0.0</Version>
+    <Version>9.1.0</Version>
     <!-- Lets "dotnet publish" make a single folder you can copy to another PC. -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>

@@ -59,3 +59,16 @@ Each entry records what was built, why, and the concepts behind it. CHANGELOG.md
 
 **Concepts:** email protocols (IMAP, SMTP, MIME, message threading), secure secret storage, sandboxing untrusted HTML, Content Security Policy, CSS custom properties and theming, rules-then-AI classification with caching, feature branches and CI.
 
+## 2026-11-13 (evening): v9.1, Mail sorts like Gmail
+
+**Problem:** After setting up real accounts, the personal inbox turned out to hold 66,000+ messages, only the newest 50 were loading, and mail that Gmail filters had already labeled (VA, Millersville, Business/Square) wasn't being used for sorting.
+
+**Built**
+- **Gmail IMAP extensions:** `X-GM-LABELS` returns each message's labels in the same fetch, and `X-GM-RAW` lets the app run a Gmail search (`category:promotions`) limited to the UIDs on screen, so each message also gets its inbox tab without downloading anything extra.
+- **Rule pipeline, in order:** which business alias it was sent to, then keyword and `label:` rules, then `category:` (tab) rules, then Claude for whatever is left. Deterministic rules handle almost everything now, which cuts AI calls.
+- **Paging:** IMAP sequence numbers let the app fetch "the next 200 older than what's loaded"; results are de-duplicated by account + folder + UID (UIDs are only unique within one folder).
+- **Folder list with counts:** one `LIST ... RETURN (STATUS (MESSAGES UNSEEN))` call gets every label and its counts.
+- **Settings migration:** a version number in mail.json lets the app upgrade older settings without losing anything the user customized.
+
+**Concepts:** IMAP UIDs vs. sequence numbers, server-side search, pagination, provider-specific protocol extensions, schema versioning and data migration.
+

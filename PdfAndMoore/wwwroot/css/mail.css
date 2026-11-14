@@ -222,3 +222,13 @@ html[data-theme='light'] .compose { background: #fff; }
 .id-card { width: 100%; border: 1.5px solid var(--line); border-radius: 16px; padding: 4px 14px 10px; background: color-mix(in srgb, var(--surface-2) 40%, transparent); }
 .adv { margin: 10px 0; }
 .adv summary { cursor: pointer; color: var(--muted); }
+
+/* v9.1: Gmail labels, load older */
+.mail-sec-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; border: 0; background: none; cursor: pointer; text-align: left; }
+.mail-sec-toggle .ms { font-size: 20px; }
+.mail-sub { font-size: 12.5px; font-weight: 600; color: var(--text-2); padding: 8px 12px 2px; }
+.mail-nav.mail-label { padding-top: 5px; padding-bottom: 5px; font-size: 14px; }
+.mail-nav.mail-label .mail-nav-icon { width: 28px; height: 28px; border-radius: 9px; }
+.mail-nav.mail-label .mail-nav-icon .ms { font-size: 18px; }
+.mail-more { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 16px 26px; }
+.mail-more-text { color: var(--muted); font-size: 13.5px; text-align: center; }

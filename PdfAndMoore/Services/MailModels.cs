@@ -45,11 +45,13 @@ public sealed class SortRule
 
 public sealed class MailSettings
 {
+    /// <summary>Settings layout version (2 = v9.1: Gmail labels and categories sort mail).</summary>
+    public int Version { get; set; } = 2;
     public List<MailAccount> Accounts { get; set; } = new();
     public List<string> Folders { get; set; } = new();
     public List<SortRule> Rules { get; set; } = new();
     public string AboutMe { get; set; } = "";
-    public int FetchCount { get; set; } = 50;
+    public int FetchCount { get; set; } = 200;
     public bool AutoSort { get; set; } = true;
 }
 
@@ -57,6 +59,8 @@ public sealed class MailSettings
 public sealed class MailSummary
 {
     public string AccountId { get; set; } = "";
+    /// <summary>The IMAP folder (Gmail label) the message was read from, e.g. "INBOX" or "Business/Square".</summary>
+    public string Mailbox { get; set; } = "INBOX";
     public uint Uid { get; set; }
     public string MessageId { get; set; } = "";
     public List<string> References { get; set; } = new();
@@ -70,6 +74,31 @@ public sealed class MailSummary
     public string Preview { get; set; } = "";
     public bool Read { get; set; }
     public bool HasAttachments { get; set; }
+    /// <summary>Gmail labels on the message (user labels only, e.g. "Business/Square").</summary>
+    public List<string> Labels { get; set; } = new();
+    /// <summary>Gmail inbox tab: "primary", "promotions", "social", "updates", "forums" or "" if unknown.</summary>
+    public string Category { get; set; } = "";
+    public bool Starred { get; set; }
+}
+
+/// <summary>One page of messages from a folder.</summary>
+public sealed class MailPage
+{
+    public List<MailSummary> Messages { get; set; } = new();
+    /// <summary>How many messages the folder holds on the server.</summary>
+    public int Total { get; set; }
+    public int Unread { get; set; }
+}
+
+/// <summary>A folder (Gmail label) in an account.</summary>
+public sealed class MailFolderInfo
+{
+    public string Name { get; set; } = "";
+    public string FullName { get; set; } = "";
+    /// <summary>"inbox", "sent", "all", "starred", "important", "drafts", "spam", "trash" or "label".</summary>
+    public string Kind { get; set; } = "label";
+    public int Total { get; set; }
+    public int Unread { get; set; }
 }
 
 public sealed class MailAttachmentInfo

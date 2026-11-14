@@ -28,6 +28,7 @@ public sealed class MailSettingsStore
 
     private sealed class StoredFile
     {
+        public int Version { get; set; }
         public List<StoredAccount> Accounts { get; set; } = new();
         public List<string> Folders { get; set; } = new();
         public List<SortRule> Rules { get; set; } = new();
@@ -42,15 +43,18 @@ public sealed class MailSettingsStore
         {
             if (!File.Exists(FilePath)) return Defaults();
             var stored = JsonSerializer.Deserialize<StoredFile>(File.ReadAllText(FilePath)) ?? new StoredFile();
-            return new MailSettings
+            var settings = new MailSettings
             {
+                Version = stored.Version,
                 Accounts = stored.Accounts.Select(s => { s.Account.ProtectedPassword = s.ProtectedPassword; return s.Account; }).ToList(),
                 Folders = stored.Folders.Count > 0 ? stored.Folders : Defaults().Folders,
                 Rules = stored.Rules,
                 AboutMe = stored.AboutMe,
-                FetchCount = stored.FetchCount <= 0 ? 50 : stored.FetchCount,
+                FetchCount = stored.FetchCount <= 0 ? 200 : stored.FetchCount,
                 AutoSort = stored.AutoSort,
             };
+            if (settings.Version < 2) Upgrade(settings);
+            return settings;
         }
         catch
         {
@@ -60,11 +64,28 @@ public sealed class MailSettingsStore
         }
     }
 
+    /// <summary>
+    /// v9.1: smart folders follow John's Gmail labels and tabs (School, VA &amp; Benefits, Diving, Finance,
+    /// Promotions, Updates…). Keeps any folders and rules he added himself, then saves.
+    /// </summary>
+    private void Upgrade(MailSettings s)
+    {
+        var d = Defaults();
+        var oldDefaults = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Newsletters" };
+        s.Folders = d.Folders.Concat(s.Folders.Where(f => !oldDefaults.Contains(f) && !d.Folders.Contains(f, StringComparer.OrdinalIgnoreCase))).ToList();
+        var defaultMatches = new HashSet<string>(d.Rules.Select(r => r.Match), StringComparer.OrdinalIgnoreCase) { "newsletter" };
+        s.Rules = d.Rules.Concat(s.Rules.Where(r => !defaultMatches.Contains(r.Match))).ToList();
+        if (s.FetchCount <= 50) s.FetchCount = 200;
+        s.Version = 2;
+        try { Save(s); } catch { }
+    }
+
     public void Save(MailSettings s)
     {
         Directory.CreateDirectory(Folder);
         var stored = new StoredFile
         {
+            Version = s.Version,
             Accounts = s.Accounts.Select(a => new StoredAccount { Account = a, ProtectedPassword = a.ProtectedPassword }).ToList(),
             Folders = s.Folders,
             Rules = s.Rules,
@@ -112,9 +133,10 @@ public sealed class MailSettingsStore
                 ? Protect(newPw.Replace(" ", ""))
                 : current.Accounts.FirstOrDefault(c => c.Id == a.Id)?.ProtectedPassword ?? "";
         }
+        incoming.Version = 2;
         incoming.Folders = incoming.Folders.Select(f => f.Trim()).Where(f => f.Length > 0).Distinct().ToList();
         incoming.Rules = incoming.Rules.Where(r => !string.IsNullOrWhiteSpace(r.Match) && !string.IsNullOrWhiteSpace(r.Folder)).ToList();
-        if (incoming.FetchCount <= 0) incoming.FetchCount = 50;
+        if (incoming.FetchCount <= 0) incoming.FetchCount = 200;
         incoming.FetchCount = Math.Clamp(incoming.FetchCount, 10, 500);
         return incoming;
     }
@@ -187,7 +209,9 @@ public sealed class MailSettingsStore
                     },
                 },
             },
-            Folders = { "KHT", "Dive Moore", "Museum", "Business", "School", "Personal", "Newsletters" },
+            Folders = { "KHT", "Dive Moore", "Museum", "Business", "School", "VA & Benefits", "Diving", "Finance", "Travel", "Personal", "Promotions", "Updates", "Social", "fun" },
+            // Order matters: first match wins. "label:" matches a Gmail label (and its sub-labels);
+            // "category:" matches a Gmail inbox tab; anything else matches sender, recipients or subject.
             Rules =
             {
                 new SortRule { Match = "kona-hydrostatic-testing", Folder = "KHT" },
@@ -197,13 +221,26 @@ public sealed class MailSettingsStore
                 new SortRule { Match = "ewing", Folder = "KHT" },
                 new SortRule { Match = "divemoore", Folder = "Dive Moore" },
                 new SortRule { Match = "vintagescubamuseum", Folder = "Museum" },
+                new SortRule { Match = "label:Business", Folder = "Business" },
+                new SortRule { Match = "label:Millersville", Folder = "School" },
+                new SortRule { Match = "label:Colorado Technical University", Folder = "School" },
+                new SortRule { Match = "label:VA", Folder = "VA & Benefits" },
+                new SortRule { Match = "label:PADI", Folder = "Diving" },
+                new SortRule { Match = "label:Finance", Folder = "Finance" },
+                new SortRule { Match = "label:Travel", Folder = "Travel" },
+                new SortRule { Match = "label:fun", Folder = "fun" },
                 new SortRule { Match = "dan.org", Folder = "Business" },
                 new SortRule { Match = "padi.com", Folder = "Business" },
                 new SortRule { Match = "hawaiicounty.gov", Folder = "Business" },
                 new SortRule { Match = "hawaii.gov", Folder = "Business" },
+                new SortRule { Match = "squareup.com", Folder = "Business" },
                 new SortRule { Match = "millersville", Folder = "School" },
                 new SortRule { Match = "absorb", Folder = "School" },
-                new SortRule { Match = "newsletter", Folder = "Newsletters" },
+                new SortRule { Match = "va.gov", Folder = "VA & Benefits" },
+                new SortRule { Match = "category:promotions", Folder = "Promotions" },
+                new SortRule { Match = "category:social", Folder = "Social" },
+                new SortRule { Match = "category:updates", Folder = "Updates" },
+                new SortRule { Match = "category:forums", Folder = "Updates" },
             },
             AboutMe =
                 "I'm John Moore, based in Kailua-Kona on the Big Island of Hawaii. " +

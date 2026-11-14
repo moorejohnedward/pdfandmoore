@@ -281,14 +281,45 @@ public sealed class HostBridge
 
             case "mailFetch":
             {
+                // Newest messages of one folder ("INBOX" by default) for every signed-in account, or one account.
+                // skip = how many newest messages are already loaded (for "Load older").
                 MailSettings ms = _mailStore.Load();
+                string? only = Str(args, "accountId");
+                string mailbox = Str(args, "mailbox") ?? "INBOX";
+                int count = Int(args, "count") ?? ms.FetchCount;
+                int skip = Int(args, "skip") ?? 0;
+                var errors = new List<string>();
+                var totals = new Dictionary<string, int>();
+                var jobs = ms.Accounts
+                    .Where(a => !string.IsNullOrEmpty(a.ProtectedPassword) && (only == null || a.Id == only))
+                    .Select(async a =>
+                    {
+                        try
+                        {
+                            var page = await _mail.FetchAsync(a, mailbox, count, skip);
+                            lock (totals) totals[a.Id] = page.Total;
+                            return page.Messages;
+                        }
+                        catch (Exception ex) { lock (errors) errors.Add($"{a.Email}: {ex.Message}"); return new List<MailSummary>(); }
+                    });
+                var results = await Task.WhenAll(jobs);
+                return new { messages = results.SelectMany(r => r), errors, totals };
+            }
+
+            case "mailFolders":
+                return await _mail.ListFoldersAsync(MailAccountById(Str(args, "accountId")));
+
+            case "mailSearch":
+            {
+                MailSettings ms = _mailStore.Load();
+                string query = Str(args, "query") ?? "";
                 string? only = Str(args, "accountId");
                 var errors = new List<string>();
                 var jobs = ms.Accounts
                     .Where(a => !string.IsNullOrEmpty(a.ProtectedPassword) && (only == null || a.Id == only))
                     .Select(async a =>
                     {
-                        try { return await _mail.FetchInboxAsync(a, ms.FetchCount); }
+                        try { return (await _mail.SearchAsync(a, query, 100)).Messages; }
                         catch (Exception ex) { lock (errors) errors.Add($"{a.Email}: {ex.Message}"); return new List<MailSummary>(); }
                     });
                 var results = await Task.WhenAll(jobs);
@@ -296,17 +327,17 @@ public sealed class HostBridge
             }
 
             case "mailMessage":
-                return await _mail.GetMessageAsync(MailAccountById(Str(args, "accountId")), UInt(args, "uid"));
+                return await _mail.GetMessageAsync(MailAccountById(Str(args, "accountId")), Str(args, "mailbox"), UInt(args, "uid"));
 
             case "mailAttachment":
             {
-                var (name, bytes) = await _mail.GetAttachmentAsync(MailAccountById(Str(args, "accountId")), UInt(args, "uid"), (int)UInt(args, "index"));
+                var (name, bytes) = await _mail.GetAttachmentAsync(MailAccountById(Str(args, "accountId")), Str(args, "mailbox"), UInt(args, "uid"), (int)UInt(args, "index"));
                 return new { name, base64 = Convert.ToBase64String(bytes) };
             }
 
             case "mailSaveAttachment":
             {
-                var (name, bytes) = await _mail.GetAttachmentAsync(MailAccountById(Str(args, "accountId")), UInt(args, "uid"), (int)UInt(args, "index"));
+                var (name, bytes) = await _mail.GetAttachmentAsync(MailAccountById(Str(args, "accountId")), Str(args, "mailbox"), UInt(args, "uid"), (int)UInt(args, "index"));
                 var dialog = new SaveFileDialog { Title = "Save attachment", FileName = name, OverwritePrompt = true, Filter = "All files (*.*)|*.*" };
                 if (dialog.ShowDialog(_window) != true) return null;
                 await File.WriteAllBytesAsync(dialog.FileName, bytes);
@@ -431,6 +462,11 @@ public sealed class HostBridge
     private static string? Str(JsonElement args, string name) =>
         args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString()
+            : null;
+
+    private static int? Int(JsonElement args, string name) =>
+        args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n)
+            ? n
             : null;
 
     private static uint UInt(JsonElement args, string name) =>
