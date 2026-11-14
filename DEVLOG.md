@@ -72,3 +72,18 @@ Each entry records what was built, why, and the concepts behind it. CHANGELOG.md
 
 **Concepts:** IMAP UIDs vs. sequence numbers, server-side search, pagination, provider-specific protocol extensions, schema versioning and data migration.
 
+## 2026-11-14: v9.3, Drafts and a Claude mail assistant
+
+**Problem:** I wanted to write a long letter from my Dive Moore address and come back to it, but Mail could only send, not save drafts. And with 66,000+ emails across my accounts, I wanted to tell Claude how to clean up and organize them instead of doing it by hand.
+
+**Built**
+- **Drafts with IMAP APPEND:** a draft is a normal email message saved into the account's Drafts folder with the `\Draft` flag, so Gmail treats it as a real draft. Each save appends a new copy and removes the old one (`STORE +FLAGS \Deleted` then `UID EXPUNGE`), because IMAP messages can't be edited in place.
+- **Autosave with a debounce:** the compose window saves 4 seconds after the last change, and saves are chained one after another (a promise queue) so two saves never race. A snapshot of the fields decides whether anything changed.
+- **Special-use folders:** Gmail's folders have different names in different languages ("[Gmail]/Drafts", "[Google Mail]/Drafts"). The app asks the server which folder has the `\Drafts`, `\All` or `\Trash` role instead of guessing names.
+- **An AI agent with tool use:** the Claude API can answer with tool calls (`search_mail`, `change_matching`…) described by JSON Schema. The app runs each tool, sends the result back, and loops until Claude gives a final answer (at most 30 rounds).
+- **Human in the loop:** every change pauses the loop and shows an approval card with the exact counts per account. Changes use Gmail labels (`X-GM-LABELS`) in All Mail, where message IDs don't change, so each one can be undone by applying the opposite labels. Trash is undone by moving the messages back out of Trash.
+- **Short IDs:** search results are given to Claude as m1, m2… instead of account|folder|UID strings, which saves tokens and keeps Claude from inventing IDs.
+- **Testing:** the web UI was tested in headless Chrome against a fake WebView2 host with a scripted Claude, covering autosave, reopening a draft, sending, Discard, approval, and Undo. The C# compiled on GitHub Actions.
+
+**Concepts:** IMAP APPEND/EXPUNGE and special-use mailboxes (RFC 6154), debouncing and promise queues, LLM tool use and agent loops, human-in-the-loop approval, designing reversible operations, test doubles.
+

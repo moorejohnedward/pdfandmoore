@@ -328,8 +328,10 @@ export const mail = {
   fetch: (accountId = null, { mailbox = null, count = null, skip = 0 } = {}) =>
     mailCall('mailFetch', { ...(accountId ? { accountId } : {}), ...(mailbox ? { mailbox } : {}), ...(count ? { count } : {}), skip }),
   folders: (accountId) => mailCall('mailFolders', { accountId }),
-  search: (query, accountId = null) => mailCall('mailSearch', { query, ...(accountId ? { accountId } : {}) }),
-  message: (accountId, uid, mailbox = 'INBOX') => mailCall('mailMessage', { accountId, uid, mailbox }),
+  /** Searches all mail on the server. Returns { messages, errors, totals: { accountId: how many matched } }. */
+  search: (query, accountId = null, max = 100) => mailCall('mailSearch', { query, max, ...(accountId ? { accountId } : {}) }),
+  /** peek = read without marking it read (Claude's mail assistant). */
+  message: (accountId, uid, mailbox = 'INBOX', { peek = false } = {}) => mailCall('mailMessage', { accountId, uid, mailbox, peek }),
   attachment: async (accountId, uid, index, mailbox = 'INBOX') => {
     const res = await mailCall('mailAttachment', { accountId, uid, index, mailbox });
     return { name: res.name, bytes: base64ToBytes(res.base64) };
@@ -339,6 +341,23 @@ export const mail = {
   moveToLabel: (accountId, uids, label = 'Clutter', mailbox = 'INBOX') => mailCall('mailMoveToLabel', { accountId, uids, label, mailbox }),
   /** Undo clean up: moves messages from a label back to the inbox. */
   moveBack: (accountId, uids, label = 'Clutter') => mailCall('mailMoveBack', { accountId, uids, label }),
+  /**
+   * Saves a draft in the account's Gmail Drafts folder (v9.3). replaceUid = the previous save's ID, which is removed.
+   * Returns { uid } of the new copy.
+   */
+  saveDraft: ({ accountId, from, to, cc, bcc, subject, body, attachments = [], inReplyTo = null, references = [], replaceUid = null }) =>
+    mailCall('mailSaveDraft', {
+      accountId, from, to, cc, bcc, subject, body, inReplyTo, references, ...(replaceUid ? { replaceUid } : {}),
+      attachments: attachments.map((a) => ({ name: a.name, base64: bytesToBase64(a.bytes) })),
+    }),
+  deleteDraft: (accountId, uid) => mailCall('mailDeleteDraft', { accountId, uid }),
+  /**
+   * Changes emails (v9.3). change: { addLabels, removeLabels, archive, toInbox, read, starred, trash }.
+   * mailbox defaults to All Mail ("\\All"). Returns { accountId, mailbox, uids, count, trashMailbox, trashUids }.
+   */
+  modify: (accountId, uids, change, mailbox = '\\All') => mailCall('mailModify', { accountId, uids, change, mailbox }),
+  /** Changes every email matching a Gmail search, newest first, up to max. Returns the same as modify, plus total. */
+  modifyMatching: (accountId, query, change, max = 5000) => mailCall('mailModifyMatching', { accountId, query, change, max }),
   /** attachments: [{name, bytes}] */
   send: ({ accountId, from, to, cc, bcc, subject, body, attachments = [], inReplyTo = null, references = [] }) =>
     mailCall('mailSend', {
@@ -346,3 +365,9 @@ export const mail = {
       attachments: attachments.map((a) => ({ name: a.name, base64: bytesToBase64(a.bytes) })),
     }),
 };
+
+/** Claude with tools (mail assistant, v9.3): sends a Messages API request and returns the parsed reply. */
+export async function claudeRaw(body) {
+  if (!webview) throw new Error('The mail assistant works in the PDF and Moore Windows app.');
+  return JSON.parse(await callHost('claudeRaw', { body: JSON.stringify(body) }));
+}

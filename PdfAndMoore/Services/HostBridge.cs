@@ -314,16 +314,23 @@ public sealed class HostBridge
                 MailSettings ms = _mailStore.Load();
                 string query = Str(args, "query") ?? "";
                 string? only = Str(args, "accountId");
+                int max = Math.Clamp(Int(args, "max") ?? 100, 1, 500);
                 var errors = new List<string>();
+                var totals = new Dictionary<string, int>();
                 var jobs = ms.Accounts
                     .Where(a => !string.IsNullOrEmpty(a.ProtectedPassword) && (only == null || a.Id == only))
                     .Select(async a =>
                     {
-                        try { return (await _mail.SearchAsync(a, query, 100)).Messages; }
+                        try
+                        {
+                            var page = await _mail.SearchAsync(a, query, max);
+                            lock (totals) totals[a.Id] = page.Total;
+                            return page.Messages;
+                        }
                         catch (Exception ex) { lock (errors) errors.Add($"{a.Email}: {ex.Message}"); return new List<MailSummary>(); }
                     });
                 var results = await Task.WhenAll(jobs);
-                return new { messages = results.SelectMany(r => r), errors };
+                return new { messages = results.SelectMany(r => r), errors, totals };
             }
 
             case "mailMoveToLabel":
@@ -338,7 +345,7 @@ public sealed class HostBridge
                 return await _mail.MoveBackToInboxAsync(MailAccountById(Str(args, "accountId")), Str(args, "label") ?? "Clutter", UIntList(args, "uids"));
 
             case "mailMessage":
-                return await _mail.GetMessageAsync(MailAccountById(Str(args, "accountId")), Str(args, "mailbox"), UInt(args, "uid"));
+                return await _mail.GetMessageAsync(MailAccountById(Str(args, "accountId")), Str(args, "mailbox"), UInt(args, "uid"), Bool(args, "peek"));
 
             case "mailAttachment":
             {
@@ -357,20 +364,42 @@ public sealed class HostBridge
 
             case "mailSend":
             {
-                MailAccount account = MailAccountById(Str(args, "accountId"));
-                string fromAddress = Str(args, "from") ?? "";
-                SendIdentity from = account.Identities.FirstOrDefault(i => i.Address.Equals(fromAddress, StringComparison.OrdinalIgnoreCase))
-                    ?? throw new InvalidOperationException("Pick a From address.");
-                var attachments = new List<MailService.OutgoingAttachment>();
-                if (args.TryGetProperty("attachments", out var atts) && atts.ValueKind == JsonValueKind.Array)
-                    foreach (var att in atts.EnumerateArray())
-                        attachments.Add(new MailService.OutgoingAttachment(Str(att, "name") ?? "attachment", Convert.FromBase64String(Str(att, "base64") ?? "")));
-                var refs = new List<string>();
-                if (args.TryGetProperty("references", out var r) && r.ValueKind == JsonValueKind.Array)
-                    foreach (var x in r.EnumerateArray()) if (x.GetString() is { } v) refs.Add(v);
+                var (account, from, attachments, refs) = ReadOutgoing(args);
                 await _mail.SendAsync(account, from, Str(args, "to") ?? "", Str(args, "cc") ?? "", Str(args, "bcc") ?? "",
                     Str(args, "subject") ?? "", Str(args, "body") ?? "", attachments, Str(args, "inReplyTo"), refs);
                 return true;
+            }
+
+            // ---- Drafts (v9.3): saved in each account's own Gmail Drafts folder ----
+            case "mailSaveDraft":
+            {
+                var (account, from, attachments, refs) = ReadOutgoing(args);
+                uint? replace = Int(args, "replaceUid") is int n && n > 0 ? (uint)n : null;
+                uint? uid = await _mail.SaveDraftAsync(account, from, Str(args, "to") ?? "", Str(args, "cc") ?? "", Str(args, "bcc") ?? "",
+                    Str(args, "subject") ?? "", Str(args, "body") ?? "", attachments, Str(args, "inReplyTo"), refs, replace);
+                return new { uid };
+            }
+
+            case "mailDeleteDraft":
+                await _mail.DeleteDraftAsync(MailAccountById(Str(args, "accountId")), UInt(args, "uid"));
+                return true;
+
+            // ---- Changing mail (v9.3): labels, archive, read, star, trash; used by Claude's mail assistant ----
+            case "mailModify":
+                return await _mail.ModifyAsync(MailAccountById(Str(args, "accountId")), Str(args, "mailbox") ?? "\\All",
+                    UIntList(args, "uids"), ReadChange(args));
+
+            case "mailModifyMatching":
+                return await _mail.ModifyMatchingAsync(MailAccountById(Str(args, "accountId")), Str(args, "query") ?? throw new ArgumentException("No search given."),
+                    ReadChange(args), Int(args, "max") ?? 5000);
+
+            // Claude with tools (the mail assistant): the whole reply at once, as the API's JSON.
+            case "claudeRaw":
+            {
+                AppSettings s = _settings.Load();
+                if (string.IsNullOrWhiteSpace(s.ApiKey))
+                    throw new InvalidOperationException("Add your Claude API key in Settings first.");
+                return await _claude.CompleteAsync(Str(args, "body") ?? "{}", s.ApiKey);
             }
 
             default:
@@ -493,6 +522,28 @@ public sealed class HostBridge
                 if (x.ValueKind == JsonValueKind.Number && x.TryGetUInt32(out var n)) list.Add(n);
         return list;
     }
+
+    /// <summary>Account, From address, attachments and thread IDs of an email being sent or saved as a draft.</summary>
+    private (MailAccount Account, SendIdentity From, List<MailService.OutgoingAttachment> Attachments, List<string> References) ReadOutgoing(JsonElement args)
+    {
+        MailAccount account = MailAccountById(Str(args, "accountId"));
+        string fromAddress = Str(args, "from") ?? "";
+        SendIdentity from = account.Identities.FirstOrDefault(i => i.Address.Equals(fromAddress, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Pick a From address.");
+        var attachments = new List<MailService.OutgoingAttachment>();
+        if (args.TryGetProperty("attachments", out var atts) && atts.ValueKind == JsonValueKind.Array)
+            foreach (var att in atts.EnumerateArray())
+                attachments.Add(new MailService.OutgoingAttachment(Str(att, "name") ?? "attachment", Convert.FromBase64String(Str(att, "base64") ?? "")));
+        var refs = new List<string>();
+        if (args.TryGetProperty("references", out var r) && r.ValueKind == JsonValueKind.Array)
+            foreach (var x in r.EnumerateArray()) if (x.GetString() is { } v) refs.Add(v);
+        return (account, from, attachments, refs);
+    }
+
+    private static MailChange ReadChange(JsonElement args) =>
+        args.ValueKind == JsonValueKind.Object && args.TryGetProperty("change", out var c) && c.ValueKind == JsonValueKind.Object
+            ? JsonSerializer.Deserialize<MailChange>(c.GetRawText(), JsonOptions) ?? new MailChange()
+            : throw new ArgumentException("No change given.");
 
     private MailAccount MailAccountById(string? id) =>
         _mailStore.Load().Accounts.FirstOrDefault(a => a.Id == id)

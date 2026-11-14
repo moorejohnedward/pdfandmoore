@@ -2,6 +2,17 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.3.0 — Saturday, November 14, 2026
+**Drafts in every account, and Claude can clean up and organize your mail for you**
+- **Drafts are saved in Gmail.** What you write is saved to the From account's own Gmail Drafts folder a few seconds after you stop typing, so it also shows in Gmail on the web and your phone. **Save draft** (or Ctrl+S) saves right away.
+- **Closing keeps it.** The X (or Esc) closes the email and leaves it in Drafts, like Gmail. **Discard** throws it away and removes the draft. Sending removes the draft.
+- **Drafts** in the sidebar lists drafts from every account (and each account's Drafts is under its Gmail labels). Click one to finish it: From address, To/Cc/Bcc, subject, attachments and reply threading come back as you left them, and the signature isn't added twice.
+- Changing the From address to another account moves the draft to that account's Drafts.
+- **Ask Claude** (top of the Mail sidebar): tell Claude in plain words how to clean up and organize your mail, for example "archive marketing older than 30 days in every account but keep real people" or "label everything from PADI and DAN as Diving". Claude searches and reads every account with Gmail search, then can add or remove labels, archive, put back in the inbox, mark read or unread, star, move to Trash, and write drafts for you to review.
+- **You approve every change.** Each one shows what it will do and how many emails in each account, with a few examples. **Do it**, **Do it and the rest** (for the rest of that request; Trash always asks) or **Skip**. **Undo last change** puts labels, inbox and Trash back. Claude can't send email or delete anything for good, and reading an email doesn't mark it read.
+- The assistant uses your Claude API key (Settings › AI assistant). Everything else in Mail works without it.
+- New code: `MailService.SaveDraftAsync` / `DeleteDraftAsync` / `ModifyAsync` / `ModifyMatchingAsync`, special folder names (`\Drafts`, `\All`, `\Trash`) that work in any Gmail language, nested label creation, `ClaudeClient.CompleteAsync` (tool use), bridge commands `mailSaveDraft`, `mailDeleteDraft`, `mailModify`, `mailModifyMatching`, `claudeRaw`, and `wwwroot/js/mailagent.js`.
+
 ## v9.2.0 — Saturday, November 14, 2026
 **Clean up the clutter, never miss a customer, see what's time-sensitive first**
 - **Clutter folder:** marketing, sales pitches and loan / funding / cash-advance offers go to one **Clutter** folder (it replaces Promotions), even when they're sent to john@divemoore.com. Before, anything sent to a business address landed in that business's folder, junk included. Mass mailings are spotted by their unsubscribe headers, and Gmail labels you put on mail yourself always win. DiveVolk mail is kept.

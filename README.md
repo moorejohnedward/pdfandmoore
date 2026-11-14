@@ -14,6 +14,12 @@ with Claude to write, rewrite, sort, summarize and suggest replies. Set it up in
 3. Add each alias once in Gmail › ⚙ › See all settings › Accounts › **Send mail as** (otherwise Gmail sends from the main address).
 4. In PDF and Moore: **Settings › Email › Edit** the account, paste the app password, press **Save & test**.
 
+**Drafts (v9.3):** what you write is saved to that account's Gmail Drafts as you go, so it shows in Gmail on the web and phone too.
+Closing the email keeps it in **Drafts**; **Discard** removes it.
+
+**Ask Claude (v9.3):** tell Claude in plain words how to clean up and organize your mail (archive, label, mark read, star, Trash, write drafts)
+across every account. Each change waits for your OK and can be undone. It needs your Claude API key, and it never sends email or deletes anything for good.
+
 **Email it** on the Home ribbon sends the open PDF as an attachment. Dark/Light and button size are in **Settings › Look & feel**.
 
 ## Updates (v8.1 and later)

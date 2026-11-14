@@ -79,6 +79,29 @@ public sealed class ClaudeClient
         return full.ToString();
     }
 
+    /// <summary>
+    /// Sends a Messages API request without streaming and returns the API's whole JSON reply
+    /// (text and tool_use blocks). Used by the mail assistant, which lets Claude use tools.
+    /// </summary>
+    public async Task<string> CompleteAsync(string requestJson, string apiKey)
+    {
+        JsonNode body = JsonNode.Parse(requestJson) ?? new JsonObject();
+        body["stream"] = false;
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint)
+        {
+            Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add("x-api-key", apiKey);
+        request.Headers.Add("anthropic-version", ApiVersion);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+        string reply = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"{(int)response.StatusCode}: {ReadErrorMessage(reply)}");
+        return reply;
+    }
+
     private static string ReadErrorMessage(string body)
     {
         try

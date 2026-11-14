@@ -68,6 +68,7 @@ public sealed class MailSummary
     public string FromAddress { get; set; } = "";
     public string To { get; set; } = "";
     public string Cc { get; set; } = "";
+    public string Bcc { get; set; } = "";
     public string Subject { get; set; } = "";
     /// <summary>Unix milliseconds, so JavaScript can make a Date from it.</summary>
     public long Date { get; set; }
@@ -84,6 +85,10 @@ public sealed class MailSummary
     /// "Precedence: bulk/list/junk". Real customers don't send mail like that.
     /// </summary>
     public bool Bulk { get; set; }
+    /// <summary>A draft (it's in the Drafts folder or has the Draft flag): opens in the compose window.</summary>
+    public bool Draft { get; set; }
+    /// <summary>Still in the inbox (has Gmail's Inbox label, or was read from INBOX).</summary>
+    public bool InInbox { get; set; }
 }
 
 /// <summary>One page of messages from a folder.</summary>
@@ -118,5 +123,43 @@ public sealed class MailMessageBody
 {
     public string Text { get; set; } = "";
     public string Html { get; set; } = "";
+    // Headers, so a saved draft can be opened again exactly as it was.
+    public string Subject { get; set; } = "";
+    public string From { get; set; } = "";
+    public string To { get; set; } = "";
+    public string Cc { get; set; } = "";
+    public string Bcc { get; set; } = "";
+    public string InReplyTo { get; set; } = "";
+    public List<string> References { get; set; } = new();
     public List<MailAttachmentInfo> Attachments { get; set; } = new();
+}
+
+/// <summary>What to do to a set of emails (Claude's mail assistant, v9.3). Anything left at its default is unchanged.</summary>
+public sealed class MailChange
+{
+    /// <summary>Gmail labels to add, e.g. "Business/Square". New labels are made automatically.</summary>
+    public List<string> AddLabels { get; set; } = new();
+    public List<string> RemoveLabels { get; set; } = new();
+    /// <summary>Take out of the inbox (the mail stays in All Mail and under its labels).</summary>
+    public bool Archive { get; set; }
+    /// <summary>Put back in the inbox.</summary>
+    public bool ToInbox { get; set; }
+    public bool? Read { get; set; }
+    public bool? Starred { get; set; }
+    /// <summary>Move to Trash (Gmail empties it after 30 days, so it can be undone until then).</summary>
+    public bool Trash { get; set; }
+}
+
+/// <summary>What a change did, with the IDs needed to undo it.</summary>
+public sealed class MailChangeResult
+{
+    public string AccountId { get; set; } = "";
+    public string Mailbox { get; set; } = "";
+    public List<uint> Uids { get; set; } = new();
+    /// <summary>How many emails matched the search (may be more than were changed).</summary>
+    public int Total { get; set; }
+    /// <summary>How many emails were changed.</summary>
+    public int Count { get; set; }
+    public string TrashMailbox { get; set; } = "";
+    public List<uint> TrashUids { get; set; } = new();
 }

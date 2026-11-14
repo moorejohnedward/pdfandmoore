@@ -4,6 +4,7 @@
 import * as host from './host.js';
 import { el, icon, $, toast, dialog, confirmDialog, extOf, debounce } from './util.js';
 import { askOnce, mode as aiMode } from './claude.js';
+import { openAssistant as openAgent } from './mailagent.js';
 
 const SORT_KEY = 'pam.mailSort';
 const SAFE_KEY = 'pam.mailSafe'; // senders that are never clutter
@@ -34,13 +35,14 @@ const M = {
   showLabels: true,
   safe: loadSafe(),
   lastCleanup: null, // [{ accountId, uids }] in the Clutter label, for Undo
+  drafts: null, // drafts from every account's Gmail Drafts folder (v9.3); null = not loaded yet
 };
 
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
 const keyOf = (m) => `${m.accountId}|${m.mailbox || 'INBOX'}|${m.uid}`;
-const allLoaded = () => [...M.messages, ...[...M.labelMsgs.values()].flatMap((x) => x.messages), ...(M.searchResults || [])];
+const allLoaded = () => [...M.messages, ...[...M.labelMsgs.values()].flatMap((x) => x.messages), ...(M.searchResults || []), ...(M.drafts || [])];
 const current = () => allLoaded().find((m) => keyOf(m) === M.selected) || null;
 const accountById = (id) => (M.settings?.accounts || []).find((a) => a.id === id);
 const allIdentities = () => (M.settings?.accounts || []).flatMap((a) => a.identities.map((i) => ({ ...i, accountId: a.id, accountEmail: a.email })));
@@ -451,6 +453,7 @@ export async function refresh({ quiet = false } = {}) {
     M.totals = res.totals || {};
     M.lastRefresh = Date.now();
     loadLabels(); // in the background: Gmail labels for the sidebar
+    loadDrafts({ quiet: true }); // and drafts from every account
     render();
     setStatus(M.errors.length ? "Couldn't reach " + M.errors.join('; ') : `Up to date at ${pad(new Date().getHours())}${pad(new Date().getMinutes())}.`);
     if (M.settings.autoSort && aiMode() === 'api') await smartSort({ onlyNew: true });
@@ -490,6 +493,75 @@ async function openLabel(accountId, f) {
     render();
   } catch (e) {
     setStatus(e.message);
+  }
+}
+
+/** Claude's mail assistant (v9.3): clean up and organize every account by asking in plain words. */
+function openAssistant() {
+  openAgent({
+    settings: () => M.settings,
+    draftsChanged,
+    // Claude changed mail on the server: reload what's on screen.
+    changed: () => {
+      M.labelMsgs.clear();
+      if (M.view.type === 'search') M.view = { type: 'inbox' };
+      M.searchResults = null;
+      refresh({ quiet: true });
+    },
+  });
+}
+
+/** Drafts from every account's Gmail Drafts folder (v9.3), newest first. */
+async function loadDrafts({ quiet = false } = {}) {
+  if (!quiet) setStatus('Opening drafts…', true);
+  try {
+    const res = await host.mail.fetch(null, { mailbox: '\\Drafts', count: 100 });
+    M.drafts = (res.messages || []).map((m) => ((m.draft = true), m)).sort((a, b) => b.date - a.date);
+    if (!quiet) setStatus(res.errors?.length ? "Couldn't reach " + res.errors.join('; ') : '');
+    if (document.body.classList.contains('app-mail')) render();
+  } catch (e) {
+    if (!quiet) setStatus(e.message);
+  }
+}
+
+function openDrafts() {
+  M.view = { type: 'drafts' };
+  M.selected = null;
+  render();
+  loadDrafts();
+}
+
+/** After a draft is saved, sent or thrown away: the Drafts list is out of date. */
+function draftsChanged() {
+  M.drafts = null;
+  for (const k of [...M.labelMsgs.keys()]) if (/drafts$/i.test(k)) M.labelMsgs.delete(k);
+  loadDrafts({ quiet: true });
+}
+
+/** Opens a saved draft in the compose window, exactly as it was left (attachments included). */
+async function resumeDraft(m) {
+  setStatus('Opening draft…', true);
+  try {
+    const b = await host.mail.message(m.accountId, m.uid, m.mailbox || '\\Drafts');
+    const ids = allIdentities().filter((i) => i.accountId === m.accountId);
+    const from = ids.find((i) => i.address.toLowerCase() === (b.from || '').toLowerCase()) || ids[0] || null;
+    let text = (b.text || htmlToText(b.html) || '').replace(/\s+$/, '');
+    // The signature was saved with the draft so Gmail shows it; take it off so it isn't added twice.
+    let signature = true;
+    const sig = (from?.signature || '').trim();
+    if (sig) {
+      if (text.endsWith(sig)) text = text.slice(0, text.length - sig.length).replace(/\s+$/, '');
+      else signature = false;
+    }
+    const attachments = [];
+    for (const a of b.attachments || []) attachments.push(await host.mail.attachment(m.accountId, m.uid, a.index, m.mailbox || '\\Drafts'));
+    setStatus('');
+    composeMail({
+      from, to: b.to, cc: b.cc, bcc: b.bcc, subject: b.subject, body: text, attachments, signature,
+      draft: { accountId: m.accountId, uid: m.uid }, inReplyTo: b.inReplyTo || null, references: b.references || [],
+    });
+  } catch (e) {
+    setStatus("Couldn't open the draft: " + e.message);
   }
 }
 
@@ -582,6 +654,7 @@ function visible() {
   const q = M.search.toLowerCase();
   const textMatch = (m) => !q || `${m.fromName} ${m.fromAddress} ${m.subject} ${m.preview}`.toLowerCase().includes(q);
   if (M.view.type === 'search') return M.searchResults || [];
+  if (M.view.type === 'drafts') return (M.drafts || []).filter((m) => (!M.account || m.accountId === M.account) && textMatch(m));
   if (M.view.type === 'label') return (M.labelMsgs.get(M.view.accountId + '|' + M.view.mailbox)?.messages || []).filter(textMatch);
   const f = folders().find((x) => x.id === M.folder) || folders()[0];
   const list = M.messages.filter(
@@ -664,10 +737,12 @@ function renderSide() {
 
   // Gmail labels, per account (Sent, Starred and the labels John made in Gmail)
   const LABEL_ICON = { sent: 'send', starred: 'star', important: 'label_important', all: 'archive', drafts: 'draft' };
+  const draftCount = (M.drafts || []).filter((m) => !M.account || m.accountId === M.account).length;
+  const draftsBtn = navBtn(M.view.type === 'drafts', '#ffb74d', 'draft', 'Drafts', 'Every account', draftCount, openDrafts);
   const labelSections = signedIn()
     .filter((a) => !M.account || a.id === M.account)
     .map((a) => {
-      const list = (M.labels.get(a.id) || []).filter((f) => ['sent', 'starred', 'all'].includes(f.kind) || (f.kind === 'label' && f.total > 0));
+      const list = (M.labels.get(a.id) || []).filter((f) => ['sent', 'drafts', 'starred', 'all'].includes(f.kind) || (f.kind === 'label' && f.total > 0));
       if (!list.length) return null;
       list.sort((x, y) => (x.kind === 'label') - (y.kind === 'label') || x.fullName.localeCompare(y.fullName));
       return [
@@ -693,6 +768,8 @@ function renderSide() {
     'aside',
     { class: 'mail-side' },
     el('button', { class: 'btn btn-primary mail-new', onclick: () => composeMail() }, icon('edit_square'), 'New email'),
+    el('button', { class: 'btn btn-tonal ai-btn mail-new', onclick: () => openAssistant(), title: 'Tell Claude how to clean up and organize your mail' }, icon('auto_awesome'), 'Ask Claude'),
+    draftsBtn,
     el('div', { class: 'mail-sec' }, 'Accounts'),
     accounts,
     el('div', { class: 'mail-sec' }, 'Smart folders'),
@@ -708,7 +785,8 @@ function renderList() {
   const acct = M.view.accountId ? accountById(M.view.accountId) : null;
   const f =
     M.view.type === 'label' ? { name: M.view.name, icon: 'label', color: acct?.color || '#5ab8ff' } :
-    M.view.type === 'search' ? { name: `Search: ${M.view.query}`, icon: 'search', color: '#9b6bff' } : sf;
+    M.view.type === 'search' ? { name: `Search: ${M.view.query}`, icon: 'search', color: '#9b6bff' } :
+    M.view.type === 'drafts' ? { name: 'Drafts', icon: 'draft', color: '#ffb74d' } : sf;
   const items = visible();
   const search = el('input', { class: 'mail-search', type: 'search', placeholder: 'Search… (press Enter to search all mail)', title: 'Gmail search words work too, like from:tim or has:attachment', value: M.search });
   search.addEventListener('keydown', (e) => {
@@ -750,7 +828,7 @@ function renderList() {
       { class: 'mail-rows' },
       items.length
         ? items.map(row)
-        : el('div', { class: 'mail-empty' }, icon('celebration'), el('div', {}, M.loading ? 'Loading…' : M.view.type === 'search' ? 'Nothing found.' : 'Nothing here. Nice!')),
+        : el('div', { class: 'mail-empty' }, icon('celebration'), el('div', {}, M.loading || (M.view.type === 'drafts' && !M.drafts) ? 'Loading…' : M.view.type === 'search' ? 'Nothing found.' : M.view.type === 'drafts' ? 'No drafts.' : 'Nothing here. Nice!')),
       listFooter()
     )
   );
@@ -786,13 +864,14 @@ function row(m) {
   const [, fcolor] = folderLook(m.folder);
   return el(
     'button',
-    { class: 'mail-row' + (m.read ? '' : ' unread') + (keyOf(m) === M.selected ? ' on' : ''), style: { '--acct': acct?.color || '#5ab8ff' }, onclick: () => open(m) },
-    el('div', { class: 'mail-row-top' }, el('span', { class: 'mail-from' }, m.fromName || m.fromAddress), el('span', { class: 'mail-date' }, shortDate(m.date))),
+    { class: 'mail-row' + (m.read || m.draft ? '' : ' unread') + (keyOf(m) === M.selected ? ' on' : ''), style: { '--acct': acct?.color || '#5ab8ff' }, onclick: () => (m.draft ? resumeDraft(m) : open(m)) },
+    el('div', { class: 'mail-row-top' }, el('span', { class: 'mail-from' }, m.draft ? 'To: ' + (m.to || '(nobody yet)') : m.fromName || m.fromAddress), el('span', { class: 'mail-date' }, shortDate(m.date))),
     el('div', { class: 'mail-subject' }, m.subject),
     el('div', { class: 'mail-preview' }, m.preview),
     el(
       'div',
       { class: 'mail-chips' },
+      m.draft ? el('span', { class: 'mchip', style: { '--c': '#ffb74d' } }, icon('draft'), 'Draft · ' + (acct?.name || acct?.email || '')) : '',
       m.urgency ? el('span', { class: 'mchip urgent' + (m.urgency === 'soon' ? ' soon' : '') }, icon('alarm'), (m.urgency === 'now' ? 'Time-sensitive' : 'This week') + (m.due ? ' · ' + m.due : '')) : '',
       m.kind === 'customer' && !m.clutter ? el('span', { class: 'mchip cust' }, icon('storefront'), 'Customer') : '',
       m.folder ? el('span', { class: 'mchip', style: { '--c': fcolor } }, m.clutter ? `${CLUTTER} · ${m.clutterWhy}` : m.folder) : '',
@@ -1090,8 +1169,15 @@ async function forward(m) {
 // ---------------------------------------------------------------------------
 let composeOpen = null;
 
-/** Opens the compose window. attachments: [{name, bytes}]. Returns when it closes. */
-export async function composeMail({ from = null, to = '', cc = '', subject = '', body = '', quote = '', attachments = [], replyTo = null } = {}) {
+/**
+ * Opens the compose window. attachments: [{name, bytes}]. Returns when it closes.
+ * draft: { accountId, uid } of a saved draft being finished (v9.3). Whatever you write is saved to that
+ * account's Gmail Drafts folder as you go, and closing the window keeps it there, like Gmail.
+ */
+export async function composeMail({
+  from = null, to = '', cc = '', bcc = '', subject = '', body = '', quote = '', attachments = [], replyTo = null,
+  draft = null, signature = true, inReplyTo = null, references = null,
+} = {}) {
   if (!M.settings) await loadSettings();
   if (!M.settings) {
     toast('Email works in the PDF and Moore Windows app.', { error: true });
@@ -1102,7 +1188,7 @@ export async function composeMail({ from = null, to = '', cc = '', subject = '',
     if (go) window.dispatchEvent(new CustomEvent('pam:settings', { detail: 'mail' }));
     return;
   }
-  if (composeOpen) composeOpen.close(true);
+  if (composeOpen) await composeOpen.close(true);
 
   const ids = allIdentities();
   const files = [...attachments];
@@ -1126,18 +1212,20 @@ export async function composeMail({ from = null, to = '', cc = '', subject = '',
 
   const toBox = el('input', { class: 'field', placeholder: 'name@example.com, another@example.com', value: to });
   const ccBox = el('input', { class: 'field', placeholder: 'Cc', value: cc });
-  const bccBox = el('input', { class: 'field', placeholder: 'Bcc' });
+  const bccBox = el('input', { class: 'field', placeholder: 'Bcc', value: bcc });
   const subjBox = el('input', { class: 'field compose-subject', placeholder: 'Subject', value: subject });
   const bodyBox = el('textarea', { class: 'field compose-body', spellcheck: 'true', placeholder: 'Write your email here, or tell Claude what to write above…' });
   bodyBox.value = body + quote;
   const askBox = el('input', { class: 'field compose-ask', placeholder: 'Tell Claude what to write — e.g. “thank Charlie for the call and ask about pricing on AL80s”' });
-  const sigOn = el('input', { type: 'checkbox', checked: true });
+  const sigOn = el('input', { type: 'checkbox', checked: signature !== false });
   const sigPreview = el('div', { class: 'compose-sig' });
   const attList = el('div', { class: 'compose-atts' });
   const status = el('div', { class: 'compose-status' });
   const undoBtn = el('button', { class: 'btn btn-text small', disabled: true }, icon('undo'), 'Undo Claude');
   const sendBtn = el('button', { class: 'btn btn-primary compose-send' }, icon('send'), 'Send');
   const startText = bodyBox.value;
+  // Which email this answers, so Gmail keeps it in the same conversation (also for a reopened draft).
+  const thread = { inReplyTo: inReplyTo || replyTo?.messageId || null, references: references || replyTo?.references || [] };
 
   const say = (t, working = false) => status.replaceChildren(working ? el('span', { class: 'spinner small' }) : '', el('span', {}, t));
   const showSig = () => {
@@ -1169,6 +1257,7 @@ export async function composeMail({ from = null, to = '', cc = '', subject = '',
     undoBtn.disabled = false;
     bodyBox.value = own.trimEnd() + split()[1];
     bodyBox.scrollTop = 0;
+    autosave();
   };
   undoBtn.addEventListener('click', () => {
     const u = undo.pop();
@@ -1176,7 +1265,48 @@ export async function composeMail({ from = null, to = '', cc = '', subject = '',
     bodyBox.value = u.body;
     subjBox.value = u.subject;
     undoBtn.disabled = !undo.length;
+    autosave();
   });
+
+  // ---- Drafts: saved to the From account's Gmail Drafts folder while you write ----
+  let draftRef = draft ? { accountId: draft.accountId, uid: draft.uid } : null;
+  let saving = Promise.resolve();
+  let finished = false; // sent, discarded or closed: no more saves
+  let saveError = '';
+  const snapshot = () =>
+    JSON.stringify([fromSel.value, toBox.value, ccBox.value, bccBox.value, subjBox.value, bodyBox.value, sigOn.checked, files.map((f) => f.name + ':' + f.bytes.length)]);
+  let savedSnap = snapshot(); // a new email isn't saved until you change something
+  const startSnap = savedSnap;
+  const saveDraft = () =>
+    (saving = saving.then(async () => {
+      if (finished) return;
+      const snap = snapshot();
+      if (snap === savedSnap) return;
+      const id = fromIdentity();
+      if (!id || !accountById(id.accountId)?.hasPassword) return;
+      let text = bodyBox.value;
+      if (sigOn.checked && id.signature) text = text.replace(/\s+$/, '') + '\n\n' + id.signature;
+      const sameAccount = draftRef && draftRef.accountId === id.accountId;
+      try {
+        const res = await host.mail.saveDraft({
+          accountId: id.accountId, from: id.address, to: toBox.value, cc: ccBox.value, bcc: bccBox.value,
+          subject: subjBox.value, body: text, attachments: files,
+          inReplyTo: thread.inReplyTo, references: thread.references, replaceUid: sameAccount ? draftRef.uid : null,
+        });
+        // Changed the From account: the draft moves to the new account's Drafts.
+        if (draftRef && !sameAccount) host.mail.deleteDraft(draftRef.accountId, draftRef.uid).catch(() => {});
+        draftRef = res?.uid ? { accountId: id.accountId, uid: res.uid } : null;
+        savedSnap = snap;
+        saveError = '';
+        const acct = accountById(id.accountId);
+        say(`Draft saved in ${acct?.name || acct?.email || id.accountEmail} at ${pad(new Date().getHours())}${pad(new Date().getMinutes())}.`);
+        draftsChanged();
+      } catch (e) {
+        saveError = e.message;
+        say("Couldn't save the draft: " + e.message);
+      }
+    }));
+  const autosave = debounce(() => saveDraft(), 4000);
 
   const write = async () => {
     const request = askBox.value.trim();
@@ -1273,6 +1403,7 @@ export async function composeMail({ from = null, to = '', cc = '', subject = '',
     const picked = await host.openFiles({ multiple: true, filter: 'any' }).catch((e) => (toast(e.message, { error: true }), []));
     for (const f of picked) files.push({ name: f.name, bytes: f.bytes });
     showAtts();
+    autosave();
   };
 
   const send = async () => {
@@ -1283,14 +1414,18 @@ export async function composeMail({ from = null, to = '', cc = '', subject = '',
     let text = bodyBox.value;
     if (sigOn.checked && id.signature) text = text.replace(/\s+$/, '') + '\n\n' + id.signature;
     sendBtn.disabled = true;
+    finished = true; // no autosave while sending
     say('Sending…', true);
+    await saving;
     try {
       await host.mail.send({
         accountId: id.accountId, from: id.address, to: toBox.value, cc: ccBox.value, bcc: bccBox.value,
         subject: subjBox.value, body: text, attachments: files,
-        inReplyTo: replyTo?.messageId || null, references: replyTo?.references || [],
+        inReplyTo: thread.inReplyTo, references: thread.references,
       });
       sent = true;
+      // Sent: the saved draft isn't needed anymore.
+      if (draftRef) host.mail.deleteDraft(draftRef.accountId, draftRef.uid).then(draftsChanged, () => {});
       if (replyTo) {
         const c = entry(replyTo);
         c[0] = replyTo.folder;
@@ -1306,6 +1441,7 @@ export async function composeMail({ from = null, to = '', cc = '', subject = '',
     } catch (e) {
       say('Not sent: ' + e.message);
       sendBtn.disabled = false;
+      finished = false;
     }
   };
   sendBtn.addEventListener('click', send);
@@ -1315,10 +1451,10 @@ export async function composeMail({ from = null, to = '', cc = '', subject = '',
     'div',
     { class: 'compose', role: 'dialog', 'aria-label': 'New email' },
     el('div', { class: 'compose-head' },
-      icon(replyTo ? 'reply' : 'edit_square'),
-      el('span', {}, replyTo ? 'Reply' : quote ? 'Forward' : 'New email'),
+      icon(draft ? 'draft' : replyTo ? 'reply' : 'edit_square'),
+      el('span', {}, draft ? 'Draft' : replyTo ? 'Reply' : quote ? 'Forward' : 'New email'),
       el('div', { class: 'grow' }),
-      el('button', { class: 'icon-btn', title: 'Close', onclick: () => close(false) }, icon('close'))),
+      el('button', { class: 'icon-btn', title: 'Close (it stays in Drafts)', onclick: () => close(false) }, icon('close'))),
     el('div', { class: 'compose-scroll' },
       el('div', { class: 'compose-grid' },
         el('label', {}, 'From'), el('div', { class: 'compose-row' }, fromSel, el('button', { class: 'btn btn-tonal ai-btn', onclick: pickFrom, title: 'Choose the right business address' }, icon('auto_awesome'), 'Pick for me')),
@@ -1341,19 +1477,48 @@ export async function composeMail({ from = null, to = '', cc = '', subject = '',
       el('label', { class: 'compose-sig-row' }, sigOn, el('span', {}, 'Add signature'), sigPreview),
       el('div', { class: 'compose-att-row' }, el('button', { class: 'btn btn-tonal', onclick: attach }, icon('attach_file'), 'Attach files'), attList)
     ),
-    el('div', { class: 'compose-foot' }, status, el('button', { class: 'btn btn-text', onclick: () => close(false) }, 'Discard'), sendBtn)
+    el('div', { class: 'compose-foot' }, status,
+      el('button', { class: 'btn btn-text', title: 'Throw this email away (removes the draft too)', onclick: () => close(false, { discard: true }) }, icon('delete'), 'Discard'),
+      el('button', { class: 'btn btn-tonal', title: 'Save to Drafts in Gmail now', onclick: () => saveDraft() }, icon('save'), 'Save draft'),
+      sendBtn)
   );
   const backdrop = el('div', { class: 'compose-backdrop' }, panel);
+  panel.addEventListener('input', () => autosave());
+  panel.addEventListener('change', () => autosave());
   panel.addEventListener('keydown', (e) => {
     e.stopPropagation(); // typing here must never trigger the editor's shortcut keys
+    if (e.key === 's' && e.ctrlKey) {
+      e.preventDefault();
+      saveDraft();
+    }
     if (e.key === 'Enter' && e.ctrlKey) send();
     if (e.key === 'Escape') close(false);
   });
 
   let resolveClosed;
   const closed = new Promise((r) => (resolveClosed = r));
-  async function close(force) {
-    if (!force && !sent && bodyBox.value !== startText && !(await confirmDialog('Discard this email?', 'What you wrote will be lost.', 'Discard'))) return;
+  let closing = false;
+  async function close(force, { discard = false } = {}) {
+    if (closing) return;
+    if (discard) {
+      if (!sent && (draftRef || snapshot() !== savedSnap) &&
+        !(await confirmDialog('Discard this email?', draftRef ? 'It will be removed from your Drafts too.' : 'What you wrote will be lost.', 'Discard'))) return;
+      finished = true;
+      await saving;
+      if (draftRef) host.mail.deleteDraft(draftRef.accountId, draftRef.uid).then(draftsChanged, (e) => toast("Couldn't remove the draft: " + e.message, { error: true }));
+    } else if (!sent) {
+      // Closing keeps what you wrote in Drafts, like Gmail.
+      closing = true;
+      if (snapshot() !== savedSnap) say('Saving to Drafts…', true);
+      await saveDraft();
+      await saving;
+      closing = false;
+      if (snapshot() !== savedSnap && !force) {
+        const go = await confirmDialog("Couldn't save the draft", `${saveError || 'Saving failed.'} Close anyway and lose what you wrote?`, 'Close anyway');
+        if (!go) return;
+      } else if (draftRef && savedSnap !== startSnap) toast('Saved in Drafts.');
+      finished = true;
+    }
     backdrop.remove();
     document.body.classList.remove('composing');
     composeOpen = null;

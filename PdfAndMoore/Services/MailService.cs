@@ -39,11 +39,36 @@ public sealed class MailService
 
     private static async Task<IMailFolder> OpenFolderAsync(ImapClient client, string? mailbox, FolderAccess access, CancellationToken ct)
     {
-        IMailFolder folder = string.IsNullOrEmpty(mailbox) || mailbox.Equals("INBOX", StringComparison.OrdinalIgnoreCase)
-            ? client.Inbox
-            : await client.GetFolderAsync(mailbox, ct);
+        IMailFolder folder = await ResolveFolderAsync(client, mailbox, ct);
         await folder.OpenAsync(access, ct);
         return folder;
+    }
+
+    /// <summary>
+    /// Finds a folder by name. Besides real names ("INBOX", "Business/Square") it understands the special
+    /// names "\\Drafts", "\\All", "\\Trash", "\\Sent" and "\\Junk", so the web page doesn't need to know that
+    /// Gmail calls them "[Gmail]/Drafts" (or "[Google Mail]/Drafts" in some countries).
+    /// </summary>
+    private static async Task<IMailFolder> ResolveFolderAsync(ImapClient client, string? mailbox, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(mailbox) || mailbox.Equals("INBOX", StringComparison.OrdinalIgnoreCase) || mailbox.Equals("\\Inbox", StringComparison.OrdinalIgnoreCase))
+            return client.Inbox;
+        if (mailbox.StartsWith('\\'))
+        {
+            SpecialFolder? special = mailbox.ToLowerInvariant() switch
+            {
+                "\\drafts" => SpecialFolder.Drafts,
+                "\\all" => SpecialFolder.All,
+                "\\trash" => SpecialFolder.Trash,
+                "\\sent" => SpecialFolder.Sent,
+                "\\junk" => SpecialFolder.Junk,
+                _ => null,
+            };
+            if (special is { } sf && (client.Capabilities & (ImapCapabilities.SpecialUse | ImapCapabilities.XList)) != 0 && client.GetFolder(sf) is { } found)
+                return found;
+            throw new InvalidOperationException($"This mail server has no {mailbox.TrimStart('\\')} folder.");
+        }
+        return await client.GetFolderAsync(mailbox, ct);
     }
 
     private static bool IsGmail(ImapClient client) => (client.Capabilities & ImapCapabilities.GMailExt1) != 0;
@@ -75,7 +100,8 @@ public sealed class MailService
             int start = Math.Max(0, end - count + 1);
             bool gmail = IsGmail(client);
             var summaries = await folder.FetchAsync(start, end, SummaryRequest(gmail), ct);
-            foreach (var s in summaries) page.Messages.Add(ToSummary(a, folder.FullName, s));
+            bool drafts = (folder.Attributes & FolderAttributes.Drafts) != 0;
+            foreach (var s in summaries) page.Messages.Add(ToSummary(a, folder.FullName, s, drafts));
 
             // Gmail's tabs aren't labels over IMAP, so ask Gmail which of these messages are in each tab.
             if (gmail && folder == client.Inbox && page.Messages.Count > 0)
@@ -148,7 +174,7 @@ public sealed class MailService
         return page;
     }
 
-    private static MailSummary ToSummary(MailAccount a, string mailbox, IMessageSummary s)
+    private static MailSummary ToSummary(MailAccount a, string mailbox, IMessageSummary s, bool draftsFolder = false)
     {
         var env = s.Envelope;
         var from = env?.From?.Mailboxes.FirstOrDefault();
@@ -164,6 +190,7 @@ public sealed class MailService
             FromAddress = from?.Address ?? "",
             To = env?.To?.ToString() ?? "",
             Cc = env?.Cc?.ToString() ?? "",
+            Bcc = env?.Bcc?.ToString() ?? "",
             Subject = string.IsNullOrWhiteSpace(env?.Subject) ? "(no subject)" : env!.Subject!,
             Date = (env?.Date ?? DateTimeOffset.Now).ToUnixTimeMilliseconds(),
             Preview = (s.PreviewText ?? "").Trim(),
@@ -173,6 +200,8 @@ public sealed class MailService
             // System labels look like "\\Important"; keep only the user's own labels.
             Labels = labels.Where(l => !l.StartsWith('\\')).ToList(),
             Bulk = IsBulk(s.Headers),
+            Draft = draftsFolder || (s.Flags.HasValue && s.Flags.Value.HasFlag(MessageFlags.Draft)),
+            InInbox = labels.Contains("\\Inbox") || mailbox.Equals("INBOX", StringComparison.OrdinalIgnoreCase),
         };
     }
 
@@ -216,24 +245,46 @@ public sealed class MailService
         try { return await client.GetFolderAsync(name, ct); }
         catch (FolderNotFoundException) { }
         var ns = client.PersonalNamespaces.FirstOrDefault() ?? throw new InvalidOperationException("This mail server didn't list any folders.");
-        var root = client.GetFolder(ns);
-        return await root.CreateAsync(name, true, ct) ?? throw new InvalidOperationException($"Couldn't make the \"{name}\" label.");
+        // Nested labels like "Business/Square": make each level that doesn't exist yet.
+        IMailFolder parent = client.GetFolder(ns);
+        char sep = ns.DirectorySeparator == '\0' ? '/' : ns.DirectorySeparator;
+        string path = "";
+        foreach (string part in name.Split(sep, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            path = path.Length == 0 ? part : path + sep + part;
+            try { parent = await client.GetFolderAsync(path, ct); }
+            catch (FolderNotFoundException)
+            {
+                parent = await parent.CreateAsync(part, true, ct) ?? throw new InvalidOperationException($"Couldn't make the \"{name}\" label.");
+            }
+        }
+        return parent;
     }
 
-    /// <summary>Downloads one message, returns its text/HTML and attachment list, and marks it read.</summary>
-    public async Task<MailMessageBody> GetMessageAsync(MailAccount a, string? mailbox, uint uid, CancellationToken ct = default)
+    /// <summary>
+    /// Downloads one message, returns its text/HTML and attachment list, and marks it read
+    /// (unless peek is true: Claude's mail assistant reads without changing anything).
+    /// </summary>
+    public async Task<MailMessageBody> GetMessageAsync(MailAccount a, string? mailbox, uint uid, bool peek = false, CancellationToken ct = default)
     {
         using var client = await OpenImapAsync(a, ct);
-        var folder = await OpenFolderAsync(client, mailbox, FolderAccess.ReadWrite, ct);
+        var folder = await OpenFolderAsync(client, mailbox, peek ? FolderAccess.ReadOnly : FolderAccess.ReadWrite, ct);
         var id = new UniqueId(uid);
         var message = await folder.GetMessageAsync(id, ct);
-        await folder.AddFlagsAsync(id, MessageFlags.Seen, true, ct);
+        if (!peek) await folder.AddFlagsAsync(id, MessageFlags.Seen, true, ct);
         await client.DisconnectAsync(true, ct);
 
         return new MailMessageBody
         {
             Text = message.TextBody ?? "",
             Html = message.HtmlBody ?? "",
+            Subject = message.Subject ?? "",
+            From = message.From.Mailboxes.FirstOrDefault()?.Address ?? "",
+            To = message.To.ToString(),
+            Cc = message.Cc.ToString(),
+            Bcc = message.Bcc.ToString(),
+            InReplyTo = message.InReplyTo ?? "",
+            References = message.References.ToList(),
             Attachments = message.Attachments.Select((part, i) => new MailAttachmentInfo
             {
                 Index = i,
@@ -266,25 +317,9 @@ public sealed class MailService
         string body, IEnumerable<OutgoingAttachment> attachments, string? inReplyTo, IEnumerable<string>? references,
         CancellationToken ct = default)
     {
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(from.DisplayName, from.Address));
-        AddAddresses(message.To, to);
-        AddAddresses(message.Cc, cc);
-        AddAddresses(message.Bcc, bcc);
+        var message = BuildMessage(from, to, cc, bcc, subject, body, attachments, inReplyTo, references);
         if (message.To.Count + message.Cc.Count + message.Bcc.Count == 0)
             throw new InvalidOperationException("Add at least one person to send to.");
-        message.Subject = subject;
-
-        if (!string.IsNullOrEmpty(inReplyTo))
-        {
-            message.InReplyTo = inReplyTo;
-            foreach (var r in references ?? Enumerable.Empty<string>()) message.References.Add(r);
-            message.References.Add(inReplyTo);
-        }
-
-        var builder = new BodyBuilder { TextBody = body, HtmlBody = TextToHtml(body) };
-        foreach (var att in attachments) builder.Attachments.Add(att.Name, att.Bytes);
-        message.Body = builder.ToMessageBody();
 
         using var smtp = new SmtpClient();
         await smtp.ConnectAsync(a.SmtpHost, a.SmtpPort, SecureSocketOptions.StartTls, ct);
@@ -298,6 +333,139 @@ public sealed class MailService
         }
         await smtp.SendAsync(message, ct);
         await smtp.DisconnectAsync(true, ct);
+    }
+
+    private static MimeMessage BuildMessage(SendIdentity from, string to, string cc, string bcc, string subject,
+        string body, IEnumerable<OutgoingAttachment> attachments, string? inReplyTo, IEnumerable<string>? references)
+    {
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(from.DisplayName, from.Address));
+        AddAddresses(message.To, to);
+        AddAddresses(message.Cc, cc);
+        AddAddresses(message.Bcc, bcc);
+        message.Subject = subject;
+
+        if (!string.IsNullOrEmpty(inReplyTo))
+        {
+            message.InReplyTo = inReplyTo;
+            foreach (var r in references ?? Enumerable.Empty<string>()) message.References.Add(r);
+            message.References.Add(inReplyTo);
+        }
+
+        var builder = new BodyBuilder { TextBody = body, HtmlBody = TextToHtml(body) };
+        foreach (var att in attachments) builder.Attachments.Add(att.Name, att.Bytes);
+        message.Body = builder.ToMessageBody();
+        return message;
+    }
+
+    // ------------------------------------------------------------------
+    // Drafts (v9.3): saved in the account's own Drafts folder, so Gmail on the web and phone sees them too.
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Saves a draft in the account's Drafts folder and returns its new ID there.
+    /// replaceUid = the draft's previous ID: Gmail keeps one copy per save, so the old one is removed.
+    /// </summary>
+    public async Task<uint?> SaveDraftAsync(MailAccount a, SendIdentity from, string to, string cc, string bcc, string subject,
+        string body, IEnumerable<OutgoingAttachment> attachments, string? inReplyTo, IEnumerable<string>? references,
+        uint? replaceUid, CancellationToken ct = default)
+    {
+        var message = BuildMessage(from, to, cc, bcc, subject, body, attachments, inReplyTo, references);
+        using var client = await OpenImapAsync(a, ct);
+        var drafts = await ResolveFolderAsync(client, "\\Drafts", ct);
+        UniqueId? saved = await drafts.AppendAsync(new AppendRequest(message, MessageFlags.Draft | MessageFlags.Seen), ct);
+        if (replaceUid is { } old && old != 0 && (saved == null || saved.Value.Id != old))
+            await RemoveFromFolderAsync(drafts, new[] { new UniqueId(old) }, ct);
+        await client.DisconnectAsync(true, ct);
+        return saved?.Id;
+    }
+
+    /// <summary>Removes a draft (after it is sent, or when you press Discard).</summary>
+    public async Task DeleteDraftAsync(MailAccount a, uint uid, CancellationToken ct = default)
+    {
+        using var client = await OpenImapAsync(a, ct);
+        var drafts = await ResolveFolderAsync(client, "\\Drafts", ct);
+        await RemoveFromFolderAsync(drafts, new[] { new UniqueId(uid) }, ct);
+        await client.DisconnectAsync(true, ct);
+    }
+
+    private static async Task RemoveFromFolderAsync(IMailFolder folder, IList<UniqueId> uids, CancellationToken ct)
+    {
+        if (!folder.IsOpen || folder.Access != FolderAccess.ReadWrite) await folder.OpenAsync(FolderAccess.ReadWrite, ct);
+        await folder.AddFlagsAsync(uids, MessageFlags.Deleted, true, ct);
+        await folder.ExpungeAsync(uids, ct);
+    }
+
+    // ------------------------------------------------------------------
+    // Changing mail (v9.3): labels, archive, read/unread, star, trash. Used by Claude's mail assistant.
+    // Everything works on Gmail labels, so nothing is lost and every change can be undone.
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Changes messages in one folder (normally "\\All", All Mail). Returns what was done so it can be undone:
+    /// for Trash, the messages' new IDs in the Trash folder.
+    /// </summary>
+    public async Task<MailChangeResult> ModifyAsync(MailAccount a, string? mailbox, IList<uint> uidList, MailChange change, CancellationToken ct = default)
+    {
+        var result = new MailChangeResult { AccountId = a.Id, Count = uidList.Count };
+        if (uidList.Count == 0) return result;
+        using var client = await OpenImapAsync(a, ct);
+        var folder = await OpenFolderAsync(client, mailbox, FolderAccess.ReadWrite, ct);
+        result.Mailbox = folder.FullName;
+        result.Uids = uidList.ToList();
+        await ApplyAsync(client, folder, uidList.Select(u => new UniqueId(u)).ToList(), change, result, ct);
+        await client.DisconnectAsync(true, ct);
+        return result;
+    }
+
+    /// <summary>
+    /// Changes every message that matches a Gmail search (e.g. "category:promotions older_than:30d"),
+    /// newest first, up to max. Works in All Mail so the IDs stay the same for Undo.
+    /// </summary>
+    public async Task<MailChangeResult> ModifyMatchingAsync(MailAccount a, string query, MailChange change, int max, CancellationToken ct = default)
+    {
+        using var client = await OpenImapAsync(a, ct);
+        if (!IsGmail(client)) throw new InvalidOperationException($"{a.Email}: changing mail by search only works with Gmail accounts.");
+        var folder = await OpenFolderAsync(client, "\\All", FolderAccess.ReadWrite, ct);
+        var found = await folder.SearchAsync(SearchQuery.GMailRawSearch(query), ct);
+        var uids = found.OrderByDescending(u => u.Id).Take(Math.Max(1, max)).ToList();
+        var result = new MailChangeResult { AccountId = a.Id, Mailbox = folder.FullName, Total = found.Count, Count = uids.Count, Uids = uids.Select(u => u.Id).ToList() };
+        if (uids.Count > 0) await ApplyAsync(client, folder, uids, change, result, ct);
+        await client.DisconnectAsync(true, ct);
+        return result;
+    }
+
+    private static async Task ApplyAsync(ImapClient client, IMailFolder folder, IList<UniqueId> uids, MailChange change, MailChangeResult result, CancellationToken ct)
+    {
+        bool gmail = IsGmail(client);
+        var add = change.AddLabels.Where(l => !string.IsNullOrWhiteSpace(l)).Select(l => l.Trim()).Distinct().ToList();
+        var remove = change.RemoveLabels.Where(l => !string.IsNullOrWhiteSpace(l)).Select(l => l.Trim()).Distinct().ToList();
+        if (change.Archive) remove.Add("\\Inbox");
+        if (change.ToInbox) add.Add("\\Inbox");
+
+        if ((add.Count > 0 || remove.Count > 0) && !gmail)
+            throw new InvalidOperationException("Labels and archiving only work with Gmail accounts.");
+
+        // Make any new labels first (Gmail labels are folders over IMAP).
+        foreach (var label in add.Where(l => !l.StartsWith('\\')))
+            await GetOrCreateFolderAsync(client, label, ct);
+
+        if (add.Count > 0) await folder.AddLabelsAsync(uids, add, true, ct);
+        if (remove.Count > 0) await folder.RemoveLabelsAsync(uids, remove, true, ct);
+
+        if (change.Read == true) await folder.AddFlagsAsync(uids, MessageFlags.Seen, true, ct);
+        if (change.Read == false) await folder.RemoveFlagsAsync(uids, MessageFlags.Seen, true, ct);
+        if (change.Starred == true) await folder.AddFlagsAsync(uids, MessageFlags.Flagged, true, ct);
+        if (change.Starred == false) await folder.RemoveFlagsAsync(uids, MessageFlags.Flagged, true, ct);
+
+        if (change.Trash)
+        {
+            // Gmail keeps Trash for 30 days, so this can be undone.
+            var trash = await ResolveFolderAsync(client, "\\Trash", ct);
+            var map = await folder.MoveToAsync(uids, trash, ct);
+            result.TrashMailbox = trash.FullName;
+            result.TrashUids = map.Destination.Select(u => u.Id).ToList();
+        }
     }
 
     /// <summary>Signs in for reading and sending, to check an account's settings.</summary>
