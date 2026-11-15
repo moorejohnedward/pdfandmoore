@@ -1,6 +1,6 @@
 // Claude assistant side panel: chat about the open document, quick actions,
 // reading pages as images, transcribing hard-to-read scans, and filling forms.
-import { askClaude, getSettings, saveSettings, isHosted, openClaudeWeb, sendToClaudeWeb } from './host.js';
+import { askClaude, getSettings, saveSettings, isHosted, openClaudeWeb, sendToClaudeWeb, hasApiKey } from './host.js';
 import { state, on, emit, checkpoint, changed } from './state.js';
 import { getAllText, renderPageToCanvas, totalRotation, rightVec, downVec } from './doc.js';
 import { el, icon, $, toast, dialog, escapeHtml, uid } from './util.js';
@@ -89,8 +89,8 @@ const QUICK = [
 export function mode() {
   if (settings.claudeMode === 'local') return 'local';
   if (settings.claudeMode === 'web') return 'web';
-  if (settings.claudeMode === 'api' && settings.apiKey) return 'api';
-  if (settings.apiKey || (!isHosted && settings.claudeMode !== 'none')) return 'api';
+  if (settings.claudeMode === 'api' && hasApiKey(settings)) return 'api';
+  if (hasApiKey(settings)) return 'api';
   return '';
 }
 export function aiSettings() {
@@ -575,8 +575,7 @@ export async function signInDialog() {
     el('label', { class: 'field-label' }, 'Open Claude', where),
     el('p', { class: 'hint' }, 'You sign in on Anthropic\'s own claude.ai page. PDF and Moore never sees your password. If Google sign-in is blocked in the window, choose "my web browser".')
   );
-  const key = el('input', { class: 'field', type: 'password', placeholder: 'sk-ant-…', autocomplete: 'off' });
-  key.value = settings.apiKey || '';
+  const key = el('input', { class: 'field', type: 'password', placeholder: settings.hasApiKey ? `Key saved (${settings.apiKeyHint || 'hidden'}). Paste a new one to replace it.` : 'sk-ant-…', autocomplete: 'off' });
   const model = el('select', { class: 'field' }, MODELS.map((m) => el('option', { value: m.id }, m.label)));
   model.value = settings.model || MODELS[0].id;
   const apiOpts = el(
@@ -627,7 +626,7 @@ export async function signInDialog() {
     ],
   });
   if (!ok) return false;
-  if (choice === 'api' && !key.value.trim()) {
+  if (choice === 'api' && !key.value.trim() && !hasApiKey(settings)) {
     toast('Paste your API key to use the built-in assistant.', { error: true });
     return false;
   }
@@ -635,8 +634,8 @@ export async function signInDialog() {
     toast(support.reason, { error: true, ms: 6000 });
     return false;
   }
-  settings = { ...settings, claudeMode: choice, claudeWhere: where.value, apiKey: key.value.trim(), model: model.value, localModel: localModel.value };
-  await saveSettings(settings);
+  await saveSettings({ ...settings, claudeMode: choice, claudeWhere: where.value, apiKey: key.value.trim(), model: model.value, localModel: localModel.value });
+  settings = (await getSettings()) || {}; // the key stays on the Windows side; we only learn hasApiKey
   renderChat();
   emit('aimode', choice);
   if (choice === 'local') {
@@ -848,8 +847,7 @@ export function markdown(src) {
 export async function settingsDialog() {
   settings = (await getSettings()) || {};
   const claudeBtn = el('button', { class: 'btn btn-tonal', onclick: () => (document.querySelector('.modal-backdrop')?.remove(), signInDialog()) }, icon('login'), ' Sign in to Claude / change how Claude connects');
-  const key = el('input', { class: 'field', type: 'password', placeholder: 'sk-ant-…', autocomplete: 'off' });
-  key.value = settings.apiKey || '';
+  const key = el('input', { class: 'field', type: 'password', placeholder: settings.hasApiKey ? `Key saved (${settings.apiKeyHint || 'hidden'}). Paste a new one to replace it.` : 'sk-ant-…', autocomplete: 'off' });
   const model = el('select', { class: 'field' }, MODELS.map((m) => el('option', { value: m.id }, m.label)));
   model.value = settings.model || MODELS[0].id;
   const name = el('input', { class: 'field', placeholder: 'Shown as the author of your comments' });
@@ -873,10 +871,12 @@ export async function settingsDialog() {
     ],
   });
   if (!ok) return false;
-  settings = { ...settings, apiKey: key.value.trim(), model: model.value, userName: name.value.trim() };
-  if (settings.apiKey && !settings.claudeMode) settings.claudeMode = 'api';
-  await saveSettings(settings);
+  const typed = key.value.trim();
+  const next = { ...settings, apiKey: typed, model: model.value, userName: name.value.trim() };
+  if ((typed || hasApiKey(settings)) && !next.claudeMode) next.claudeMode = 'api';
+  await saveSettings(next);
+  settings = (await getSettings()) || {}; // the key stays on the Windows side; we only learn hasApiKey
   toast('Settings saved.');
   renderChat();
-  return !!settings.apiKey;
+  return hasApiKey(settings);
 }

@@ -108,12 +108,17 @@ public sealed class HostBridge
             }
 
             case "getSettings":
-                return _settings.Load();
+                // Never hand the API key to the web side; it only learns whether one is saved.
+                return _settings.Load().WithoutKey();
 
             case "saveSettings":
+            {
+                // A blank key means "keep the saved one"; clearApiKey removes it.
+                string newKey = (Str(args, "apiKey") ?? "").Trim();
+                string keep = Bool(args, "clearApiKey") ? "" : _settings.Load().ApiKey;
                 _settings.Save(new AppSettings
                 {
-                    ApiKey = Str(args, "apiKey") ?? "",
+                    ApiKey = newKey.Length > 0 ? newKey : keep,
                     Model = Str(args, "model") ?? "claude-sonnet-5-5",
                     UserName = Str(args, "userName") ?? "",
                     ClaudeMode = Str(args, "claudeMode") ?? "",
@@ -121,6 +126,7 @@ public sealed class HostBridge
                     LocalModel = Str(args, "localModel") ?? "",
                 });
                 return true;
+            }
 
             case "openClaudeWeb":
                 OpenClaude(Str(args, "hint"));

@@ -122,10 +122,23 @@ export async function htmlToPdf(html, { landscape = false } = {}) {
   return base64ToBytes(b64);
 }
 
+/** True when an API key is saved (on the C# side; the key itself never comes to the web side). */
+export function hasApiKey(settings) {
+  return !!(settings && settings.hasApiKey);
+}
+
+/** Remove the saved API key. */
+export async function forgetApiKey() {
+  const s = await getSettings();
+  return saveSettings({ ...s, apiKey: '', clearApiKey: true });
+}
+
 export async function getSettings() {
   if (!webview) {
     try {
-      return JSON.parse(localStorage.getItem('pdfandmoore.settings') || '{}');
+      const s = JSON.parse(localStorage.getItem('pdfandmoore.settings') || '{}');
+      delete s.apiKey; // older builds kept a key here; keys never live in the browser
+      return s;
     } catch {
       return {};
     }
@@ -136,7 +149,8 @@ export async function getSettings() {
 export async function saveSettings(settings) {
   if (!webview) {
     try {
-      localStorage.setItem('pdfandmoore.settings', JSON.stringify(settings));
+      const { apiKey, clearApiKey, hasApiKey, apiKeyHint, ...safe } = settings || {};
+      localStorage.setItem('pdfandmoore.settings', JSON.stringify(safe));
     } catch {}
     return true;
   }
@@ -208,48 +222,9 @@ export async function askClaude(body, onText) {
   if (webview) {
     return callHost('claude', { body: JSON.stringify(body) }, onText);
   }
-  // Browser fallback: direct API call with the key from local settings.
-  const settings = await getSettings();
-  if (!settings.apiKey) throw new Error('Add your Anthropic API key in Settings first.');
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': settings.apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({ ...body, stream: true }),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-  let full = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let idx;
-    while ((idx = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, idx).trim();
-      buf = buf.slice(idx + 1);
-      if (!line.startsWith('data:')) continue;
-      try {
-        const ev = JSON.parse(line.slice(5));
-        if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta') {
-          full += ev.delta.text;
-          onText && onText(ev.delta.text);
-        } else if (ev.type === 'error') {
-          throw new Error(ev.error && ev.error.message);
-        }
-      } catch (err) {
-        if (err instanceof SyntaxError) continue;
-        throw err;
-      }
-    }
-  }
-  return full;
+  // No browser fallback on purpose: an API key must never be sent from browser code.
+  // The Windows app's C# side holds the key and makes the call (Services/ClaudeClient.cs).
+  throw new Error('The built-in Claude assistant runs in the PDF and Moore Windows app. In a web browser, use "Send to Claude" with your claude.ai account instead.');
 }
 
 /** Tell the host the web UI is ready (host then sends any file passed on the command line). */

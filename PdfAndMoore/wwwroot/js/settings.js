@@ -80,7 +80,10 @@ export async function openSettings(startTab = 'look') {
   );
 
   // ---- AI assistant ----
-  const key = el('input', { class: 'field', type: 'password', placeholder: 'sk-ant-…', autocomplete: 'off', value: ai.apiKey || '' });
+  const key = el('input', { class: 'field', type: 'password', placeholder: ai.hasApiKey ? `Key saved (${ai.apiKeyHint || 'hidden'}). Paste a new one to replace it.` : 'sk-ant-…', autocomplete: 'off' });
+  const forgetKey = ai.hasApiKey
+    ? el('button', { class: 'btn btn-text', onclick: async (e) => { e.preventDefault(); await host.forgetApiKey(); await reloadSettings(); key.placeholder = 'sk-ant-…'; forgetKey.remove(); toast('API key removed from this PC.'); } }, icon('vpn_key_off'), 'Remove saved key')
+    : null;
   const model = el('select', { class: 'field' }, MODELS.map((m) => el('option', { value: m.id }, m.label)));
   model.value = ai.model || MODELS[0].id;
   const name = el('input', { class: 'field', placeholder: 'Shown as the author of your comments', value: ai.userName || '' });
@@ -91,6 +94,7 @@ export async function openSettings(startTab = 'look') {
     { class: 'set-pane' },
     el('button', { class: 'btn btn-tonal', onclick: async () => { await signInDialog(); } }, icon('login'), 'Choose AI: free on this PC, my Claude account, or an API key'),
     el('label', { class: 'field-label' }, 'Claude API key (for the fully automatic option)', key),
+    forgetKey,
     el('p', { class: 'hint' }, 'Get one at console.anthropic.com › API Keys. It\'s billed separately from a Claude subscription, pay per use. Stored encrypted on this PC and only sent to Anthropic.'),
     el('label', { class: 'field-label' }, 'Claude model', model),
     el('label', { class: 'field-label' }, 'Your name', name),
@@ -246,8 +250,8 @@ export async function openSettings(startTab = 'look') {
 
   // Save AI settings
   const latest = (await host.getSettings().catch(() => ai)) || ai; // "Choose AI" may have changed things meanwhile
-  const next = { ...latest, apiKey: key.value.trim(), model: model.value, userName: name.value.trim() };
-  if (next.apiKey && !next.claudeMode) next.claudeMode = 'api';
+  const next = { ...latest, apiKey: key.value.trim(), model: model.value, userName: name.value.trim() }; // blank = keep the saved key
+  if ((next.apiKey || latest.hasApiKey) && !next.claudeMode) next.claudeMode = 'api';
   await host.saveSettings(next);
   await reloadSettings();
 

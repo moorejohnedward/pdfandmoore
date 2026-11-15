@@ -19,6 +19,28 @@ public sealed class AppSettings
 
     /// <summary>Which on-device AI model to use (downloaded once, then offline).</summary>
     public string LocalModel { get; set; } = "";
+
+    /// <summary>Sent to the web side instead of the key itself: true when a key is saved.</summary>
+    public bool HasApiKey { get; set; }
+
+    /// <summary>Last 4 characters of the saved key (e.g. "…a1b2") so the person can tell which key it is.</summary>
+    public string ApiKeyHint { get; set; } = "";
+
+    /// <summary>
+    /// The copy of these settings that is safe to hand to the web side (WebView2).
+    /// The API key never leaves the C# side: Claude calls are made here, in ClaudeClient.
+    /// </summary>
+    public AppSettings WithoutKey() => new()
+    {
+        ApiKey = "",
+        HasApiKey = !string.IsNullOrEmpty(ApiKey),
+        ApiKeyHint = ApiKey.Length >= 4 ? "…" + ApiKey[^4..] : "",
+        Model = Model,
+        UserName = UserName,
+        ClaudeMode = ClaudeMode,
+        ClaudeWhere = ClaudeWhere,
+        LocalModel = LocalModel,
+    };
 }
 
 /// <summary>

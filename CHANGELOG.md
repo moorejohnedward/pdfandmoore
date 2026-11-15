@@ -2,6 +2,13 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.5.1 — Sunday, November 15, 2026
+**Security fix: the Claude API key now stays on the Windows side only**
+- Follows the course rule "the browser never sees the key." The app's screens are a web page inside WebView2; before this fix the C# side handed the saved key back to that page so it could fill in the Settings box. Now it only says *whether* a key is saved and its last 4 characters (e.g. "Key saved (…a1b2)"). Every Claude call is made from C# (`Services/ClaudeClient.cs`), as before.
+- Settings: the key box stays blank with "Key saved (…a1b2). Paste a new one to replace it." Leaving it blank keeps your key. New **Remove saved key** button in Settings › AI assistant.
+- Removed the old "browser mode" path that called the Claude API straight from browser JavaScript (`anthropic-dangerous-direct-browser-access`). Opened in a plain browser, the built-in assistant now says to use the Windows app or "Send to Claude" instead, and the browser never saves a key (any old one left in browser storage is ignored).
+- The key is still stored encrypted with Windows DPAPI in %APPDATA%\PdfAndMoore\settings.json, never in the project folder or on GitHub. Checked: no key has ever been committed to this repo.
+
 ## v9.5.0 — Sunday, November 15, 2026
 **A Print button for documents and emails, plus the email features that were missing**
 - **Print button at the top of the window**, next to Save, in both Documents and Mail. In Documents it prints the open PDF; in Mail it prints the email you're reading. **Ctrl+P** does the same in both.
