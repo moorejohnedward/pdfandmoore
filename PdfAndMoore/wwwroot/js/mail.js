@@ -585,7 +585,7 @@ async function loadOlder() {
     } else {
       const batch = M.settings.fetchCount || 200;
       for (const a of signedIn().filter((a) => !M.account || a.id === M.account)) {
-        const have = M.messages.filter((m) => m.accountId === a.id).length;
+        const have = M.messages.filter((m) => m.accountId === a.id && !m.toSelf).length;
         if (M.totals[a.id] !== undefined && have >= M.totals[a.id]) continue;
         const res = await host.mail.fetch(a.id, { count: batch, skip: have });
         const more = (res.messages || []).map((m) => (applySorting(m), m));
@@ -868,7 +868,7 @@ function listFooter() {
     total = cur?.total || 0;
   } else if (M.view.type === 'inbox') {
     for (const a of signedIn().filter((a) => !M.account || a.id === M.account)) {
-      loaded += M.messages.filter((m) => m.accountId === a.id).length;
+      loaded += M.messages.filter((m) => m.accountId === a.id && !m.toSelf).length;
       total += M.totals[a.id] || 0;
     }
   }
@@ -921,6 +921,7 @@ function row(m) {
       'div',
       { class: 'mail-chips' },
       m.draft ? el('span', { class: 'mchip', style: { '--c': '#ffb74d' } }, icon('draft'), 'Draft · ' + (acct?.name || acct?.email || '')) : '',
+      m.toSelf ? el('span', { class: 'mchip', style: { '--c': '#2bb3d9' }, title: 'You sent this to yourself (a scan from the scanner, or a note to self). Gmail keeps these in Sent, so they show here too.' }, icon(m.hasAttachments ? 'scanner' : 'outgoing_mail'), 'Sent to yourself') : '',
       m.urgency ? el('span', { class: 'mchip urgent' + (m.urgency === 'soon' ? ' soon' : '') }, icon('alarm'), (m.urgency === 'now' ? 'Time-sensitive' : 'This week') + (m.due ? ' · ' + m.due : '')) : '',
       m.kind === 'customer' && !m.clutter ? el('span', { class: 'mchip cust' }, icon('storefront'), 'Customer') : '',
       m.folder ? el('span', { class: 'mchip', style: { '--c': fcolor } }, m.clutter ? `${CLUTTER} · ${m.clutterWhy}` : m.folder) : '',

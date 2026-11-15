@@ -121,8 +121,44 @@ public sealed class MailService
                 foreach (var m in page.Messages) if (m.Category.Length == 0) m.Category = "primary";
             }
         }
+
+        // Mail you send to yourself never reaches Gmail's Inbox: Gmail files it under Sent only.
+        // That's what a scanner does when it signs in as you to "scan to email" you (and notes to self).
+        // Show the last two weeks of it with the inbox so scans don't go missing (v9.5.2).
+        if (IsGmail(client) && folder == client.Inbox && skip <= 0)
+            page.Messages.AddRange(await SentToSelfAsync(client, a, ct));
+
         await client.DisconnectAsync(true, ct);
         return page;
+    }
+
+    /// <summary>
+    /// Recent messages from this account to itself that aren't in the inbox (Gmail keeps them in Sent only).
+    /// Read from All Mail, so opening, deleting and labeling them works like any other message.
+    /// </summary>
+    private static async Task<List<MailSummary>> SentToSelfAsync(ImapClient client, MailAccount a, CancellationToken ct)
+    {
+        var list = new List<MailSummary>();
+        try
+        {
+            var all = await ResolveFolderAsync(client, "\\All", ct);
+            await all.OpenAsync(FolderAccess.ReadOnly, ct);
+            var hits = await all.SearchAsync(SearchQuery.GMailRawSearch("from:me to:me -in:inbox -in:drafts -in:trash -in:spam newer_than:14d"), ct);
+            var newest = hits.OrderByDescending(u => u.Id).Take(25).ToList();
+            if (newest.Count == 0) return list;
+            foreach (var s in await all.FetchAsync(newest, SummaryRequest(true), ct))
+            {
+                var m = ToSummary(a, all.FullName, s);
+                m.ToSelf = true;
+                m.Category = "primary";
+                list.Add(m);
+            }
+        }
+        catch (Exception ex) when (ex is ImapCommandException or InvalidOperationException or FolderNotFoundException)
+        {
+            // No All Mail folder or search not supported: just show the inbox.
+        }
+        return list;
     }
 
     /// <summary>Lists the account's folders (Gmail labels) with message and unread counts.</summary>

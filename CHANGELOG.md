@@ -2,6 +2,13 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.5.2 — Sunday, November 15, 2026
+**Scans from the scanner show up in Mail**
+- **Fixed:** an email the scanner sent to john@divemoore.com never appeared. When the scanner signs in as you and emails you ("scan to email"), the message is from you and to you, and Gmail files mail you send to yourself under **Sent only, never the Inbox**. Mail only read the Inbox, so the scan was invisible.
+- Mail now also lists the last 2 weeks of mail you sent to yourself, in every Gmail account, with a blue **Sent to yourself** chip (scanner icon when there's an attachment). Open, Print, Delete, attachments and **Open** in the editor all work as usual. Notes to self show up the same way.
+- "Load older" and "Showing the newest N" still count only the inbox.
+- New code: `MailService.SentToSelfAsync` (Gmail search `from:me to:me -in:inbox newer_than:14d` in All Mail), `MailSummary.ToSelf`.
+
 ## v9.5.1 — Sunday, November 15, 2026
 **Security fix: the Claude API key now stays on the Windows side only**
 - Follows the course rule "the browser never sees the key." The app's screens are a web page inside WebView2; before this fix the C# side handed the saved key back to that page so it could fill in the Settings box. Now it only says *whether* a key is saved and its last 4 characters (e.g. "Key saved (…a1b2)"). Every Claude call is made from C# (`Services/ClaudeClient.cs`), as before.

@@ -89,6 +89,11 @@ public sealed class MailSummary
     public bool Draft { get; set; }
     /// <summary>Still in the inbox (has Gmail's Inbox label, or was read from INBOX).</summary>
     public bool InInbox { get; set; }
+    /// <summary>
+    /// Sent from this account to itself (a scanner's "scan to email", a note to self). Gmail keeps these
+    /// in Sent only, so the app adds recent ones to the inbox list (v9.5.2).
+    /// </summary>
+    public bool ToSelf { get; set; }
 }
 
 /// <summary>One page of messages from a folder.</summary>
