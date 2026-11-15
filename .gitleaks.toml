@@ -1,0 +1,13 @@
+# Settings for the Secret scan (.github/workflows/secret-scan.yml).
+# Uses Gitleaks' standard rules, and skips third-party library files bundled with the app:
+# their random-looking data (fonts, WebAssembly) can look like keys but isn't.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Bundled third-party libraries, not our code"
+paths = [
+  '''(^|/)wwwroot/lib/''',
+  '''\.min\.js$''',
+  '''\.wasm(\.js)?$''',
+]

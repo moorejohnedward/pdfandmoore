@@ -1,0 +1,25 @@
+# Dependabot: checks weekly for newer versions of the tools and libraries this repo uses
+# and opens one pull request with the updates. Security fixes come as soon as they exist.
+# Merge it once the Build check on that pull request passes.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      github_actions:
+        patterns: ["*"]
+  - package-ecosystem: "nuget"
+    directory: "/PdfAndMoore"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      nuget:
+        patterns: ["*"]
+    ignore:
+      # Big version jumps can break the build; those get done on purpose, not automatically.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
