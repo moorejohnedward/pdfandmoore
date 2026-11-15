@@ -2,7 +2,8 @@
 // The Windows side (MailService.cs) reads mail over IMAP and sends over SMTP; this file is the screen.
 
 import * as host from './host.js';
-import { el, icon, $, toast, dialog, confirmDialog, extOf, debounce } from './util.js';
+import { el, icon, $, toast, dialog, confirmDialog, promptDialog, extOf, debounce, busy } from './util.js';
+import { emailPage, emailPdf, printEmailPage, hasWebPictures } from './print.js';
 import { askOnce, mode as aiMode } from './claude.js';
 import { openAssistant as openAgent } from './mailagent.js';
 
@@ -10,6 +11,11 @@ const SORT_KEY = 'pam.mailSort';
 const SAFE_KEY = 'pam.mailSafe'; // senders that are never clutter
 const CLUTTER = 'Clutter';
 const REFRESH_MINUTES = 5;
+export const UNDO_SEND_KEY = 'pam.undoSend'; // seconds to wait before an email really goes (v9.5)
+export const undoSendSeconds = () => {
+  const v = Number(localStorage.getItem(UNDO_SEND_KEY));
+  return Number.isFinite(v) && localStorage.getItem(UNDO_SEND_KEY) !== null ? Math.max(0, Math.min(60, v)) : 10;
+};
 
 const M = {
   settings: null, // from host: accounts (with hasPassword), folders, rules, aboutMe, fetchCount, autoSort
@@ -36,6 +42,7 @@ const M = {
   safe: loadSafe(),
   lastCleanup: null, // [{ accountId, uids }] in the Clutter label, for Undo
   drafts: null, // drafts from every account's Gmail Drafts folder (v9.3); null = not loaded yet
+  checked: new Set(), // emails ticked in the list for bulk actions (v9.5)
 };
 
 // ---------------------------------------------------------------------------
@@ -737,21 +744,22 @@ function renderSide() {
   );
 
   // Gmail labels, per account (Sent, Starred and the labels John made in Gmail)
-  const LABEL_ICON = { sent: 'send', starred: 'star', important: 'label_important', all: 'archive', drafts: 'draft' };
+  const LABEL_ICON = { sent: 'send', starred: 'star', important: 'label_important', all: 'archive', drafts: 'draft', spam: 'report', trash: 'delete' };
   const draftCount = (M.drafts || []).filter((m) => !M.account || m.accountId === M.account).length;
   const draftsBtn = navBtn(M.view.type === 'drafts', '#ffb74d', 'draft', 'Drafts', 'Every account', draftCount, openDrafts);
   const labelSections = signedIn()
     .filter((a) => !M.account || a.id === M.account)
     .map((a) => {
-      const list = (M.labels.get(a.id) || []).filter((f) => ['sent', 'drafts', 'starred', 'all'].includes(f.kind) || (f.kind === 'label' && f.total > 0));
+      const list = (M.labels.get(a.id) || []).filter((f) => ['sent', 'drafts', 'starred', 'all', 'spam', 'trash'].includes(f.kind) || (f.kind === 'label' && f.total > 0));
       if (!list.length) return null;
-      list.sort((x, y) => (x.kind === 'label') - (y.kind === 'label') || x.fullName.localeCompare(y.fullName));
+      const ORDER = { starred: 0, sent: 1, drafts: 2, all: 3, spam: 4, trash: 5 };
+      list.sort((x, y) => (x.kind === 'label') - (y.kind === 'label') || (ORDER[x.kind] ?? 9) - (ORDER[y.kind] ?? 9) || x.fullName.localeCompare(y.fullName));
       return [
         el('div', { class: 'mail-sub' }, a.name || a.email),
         list.map((f) => {
           const depth = f.kind === 'label' ? f.fullName.split('/').length - 1 : 0;
           const on = M.view.type === 'label' && M.view.accountId === a.id && M.view.mailbox === f.fullName;
-          const b = navBtn(on, a.color, LABEL_ICON[f.kind] || 'label', f.kind === 'all' ? 'All Mail' : f.name, '', f.kind === 'label' ? f.unread : 0, () => openLabel(a.id, f));
+          const b = navBtn(on, a.color, LABEL_ICON[f.kind] || 'label', { all: 'All Mail', spam: 'Spam', trash: 'Trash' }[f.kind] || f.name, '', f.kind === 'label' ? f.unread : 0, () => openLabel(a.id, f));
           b.classList.add('mail-label');
           b.style.paddingLeft = 12 + depth * 18 + 'px';
           return b;
@@ -789,6 +797,30 @@ function renderList() {
     M.view.type === 'search' ? { name: `Search: ${M.view.query}`, icon: 'search', color: '#9b6bff' } :
     M.view.type === 'drafts' ? { name: 'Drafts', icon: 'draft', color: '#ffb74d' } : sf;
   const items = visible();
+  const tickable = items.filter((m) => !m.draft);
+  const ticked = tickable.filter((m) => M.checked.has(keyOf(m)));
+  const sv = specialView();
+  const allBox = el('input', { type: 'checkbox', class: 'mail-check', title: 'Tick every email shown', 'aria-label': 'Select all' });
+  allBox.checked = tickable.length > 0 && ticked.length === tickable.length;
+  allBox.indeterminate = ticked.length > 0 && ticked.length < tickable.length;
+  allBox.addEventListener('change', () => {
+    if (allBox.checked) tickable.forEach((m) => M.checked.add(keyOf(m)));
+    else M.checked.clear();
+    render();
+  });
+  const bulkBtn = (ic, label, kind, title) => el('button', { class: 'btn btn-tonal small', title: title || label, onclick: () => (kind === 'labelpick' ? labelMail(ticked, 'label') : changeMail(ticked, kind)) }, icon(ic), label);
+  const bulk = ticked.length
+    ? el('div', { class: 'mail-bulk' },
+        el('b', {}, `${ticked.length} selected`),
+        sv
+          ? [bulkBtn(sv === 'spam' ? 'report_off' : 'move_to_inbox', sv === 'spam' ? 'Not spam' : 'Move to inbox', sv === 'spam' ? 'notspam' : 'inbox'), bulkBtn('delete_forever', 'Delete forever', 'forever')]
+          : [bulkBtn('archive', 'Archive', 'archive', 'Archive (E)'), bulkBtn('delete', 'Delete', 'trash', 'Move to Trash (#)'), bulkBtn('report', 'Spam', 'spam', 'Report spam (!)')],
+        bulkBtn('drafts', 'Read', 'read', 'Mark as read (Shift+I)'),
+        bulkBtn('mark_email_unread', 'Unread', 'unread', 'Mark as unread (Shift+U)'),
+        bulkBtn('star', 'Star', ticked.every((m) => m.starred) ? 'unstar' : 'star', 'Star / unstar (S)'),
+        bulkBtn('label', 'Label', 'labelpick', 'Label as… (L)'),
+        el('button', { class: 'btn btn-text small', onclick: () => (M.checked.clear(), render()) }, 'Clear'))
+    : '';
   // v9.4: searching is done in the permanent search box at the top of the window (search.js).
   return el(
     'section',
@@ -796,7 +828,7 @@ function renderList() {
     el(
       'div',
       { class: 'mail-list-head' },
-      el('div', { class: 'mail-list-title', style: { '--c': f.color } }, icon(f.icon), el('span', {}, f.name), el('small', {}, `${items.length}`)),
+      el('div', { class: 'mail-list-title', style: { '--c': f.color } }, tickable.length ? allBox : '', icon(f.icon), el('span', {}, f.name), el('small', {}, `${items.length}`)),
       el(
         'div',
         { class: 'mail-tools' },
@@ -809,6 +841,7 @@ function renderList() {
       M.search && M.view.type !== 'search'
         ? el('div', { class: 'mail-filter-note' }, icon('filter_alt'), el('span', {}, `Showing emails that match “${M.search}”`), el('button', { class: 'btn btn-text small', onclick: () => setSearchText('') }, 'Show all'))
         : '',
+      bulk,
       el('div', { id: 'mailStatus', class: 'mail-status' })
     ),
     el(
@@ -851,10 +884,18 @@ function row(m) {
   const acct = accountById(m.accountId);
   const [, fcolor] = folderLook(m.folder);
   const go = () => (m.draft ? resumeDraft(m) : open(m));
+  const box = m.draft ? '' : el('input', { type: 'checkbox', class: 'mail-check', 'aria-label': 'Select', title: 'Tick to act on several emails (X)', onclick: (e) => e.stopPropagation() });
+  if (box) {
+    box.checked = M.checked.has(keyOf(m));
+    box.addEventListener('change', () => (box.checked ? M.checked.add(keyOf(m)) : M.checked.delete(keyOf(m)), render()));
+  }
+  const star = m.draft
+    ? ''
+    : el('button', { class: 'mail-star' + (m.starred ? ' on' : ''), title: m.starred ? 'Starred (S to remove)' : 'Star it (S)', 'aria-label': 'Star', onclick: (e) => (e.stopPropagation(), changeMail([m], m.starred ? 'unstar' : 'star')) }, icon(m.starred ? 'star' : 'star_outline'));
   return el(
     'div',
     {
-      class: 'mail-row' + (m.read || m.draft ? '' : ' unread') + (keyOf(m) === M.selected ? ' on' : ''),
+      class: 'mail-row' + (m.read || m.draft ? '' : ' unread') + (keyOf(m) === M.selected ? ' on' : '') + (M.checked.has(keyOf(m)) ? ' ticked' : ''),
       role: 'button',
       tabindex: '0',
       style: { '--acct': acct?.color || '#5ab8ff' },
@@ -862,15 +903,17 @@ function row(m) {
       onkeydown: (e) => {
         if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') (e.preventDefault(), go());
-        if (e.key === 'Delete') (e.preventDefault(), deleteMail(m));
+        if (e.key === 'Delete') (e.preventDefault(), specialView() ? changeMail([m], 'forever') : deleteMail(m));
       },
     },
     el(
       'div',
       { class: 'mail-row-top' },
+      box,
       el('span', { class: 'mail-from' }, m.draft ? 'To: ' + (m.to || '(nobody yet)') : m.fromName || m.fromAddress),
       el('span', { class: 'mail-date' }, shortDate(m.date)),
-      el('button', { class: 'mail-del', title: m.draft ? 'Delete this draft' : 'Delete (moves it to Trash; Undo puts it back)', 'aria-label': 'Delete', onclick: (e) => (e.stopPropagation(), deleteMail(m)) }, icon('delete'))
+      star,
+      el('button', { class: 'mail-del', title: m.draft ? 'Delete this draft' : specialView() ? 'Delete forever' : 'Delete (moves it to Trash; Undo puts it back)', 'aria-label': 'Delete', onclick: (e) => (e.stopPropagation(), specialView() && !m.draft ? changeMail([m], 'forever') : deleteMail(m)) }, icon(specialView() && !m.draft ? 'delete_forever' : 'delete'))
     ),
     el('div', { class: 'mail-subject' }, m.subject),
     el('div', { class: 'mail-preview' }, m.preview),
@@ -890,7 +933,16 @@ function row(m) {
 async function open(m) {
   M.selected = keyOf(m);
   render();
-  if (M.bodies.has(keyOf(m))) return;
+  if (M.bodies.has(keyOf(m))) {
+    // Opened before and marked unread since (v9.5): opening it again marks it read, like Gmail.
+    if (!m.read) {
+      m.read = true;
+      updateBadge();
+      render();
+      host.mail.modify(m.accountId, [m.uid], { read: true }, m.mailbox || 'INBOX').catch(() => {});
+    }
+    return;
+  }
   try {
     const body = await host.mail.message(m.accountId, m.uid, m.mailbox || 'INBOX');
     M.bodies.set(keyOf(m), body);
@@ -976,6 +1028,432 @@ async function undoDelete(m, trashUids) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Archive, star, read/unread, labels, spam, Trash & Spam views (v9.5)
+// ---------------------------------------------------------------------------
+/** "trash" or "spam" when one of those folders is open, else null. */
+const specialView = () => (M.view.type === 'label' && ['trash', 'spam'].includes(M.view.kind) ? M.view.kind : null);
+const accountLabel = (m) => {
+  const a = accountById(m.accountId);
+  return a ? (a.name ? `${a.name} <${a.email}>` : a.email) : '';
+};
+/** The emails a key or bulk button acts on: the ticked ones if any are ticked, else the open one. */
+function targets() {
+  const ticked = visible().filter((m) => M.checked.has(keyOf(m)) && !m.draft);
+  if (ticked.length) return ticked;
+  const m = current();
+  return m && !m.draft ? [m] : [];
+}
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * Changes emails on the server and on screen.
+ * kind: archive | trash | spam | notspam | inbox | forever | read | unread | star | unstar | label | movelabel
+ */
+async function changeMail(list, kind, { label = '' } = {}) {
+  list = list.filter((m) => !m.draft);
+  if (!list.length) return;
+  const n = list.length;
+  const what = n === 1 ? `“${list[0].subject || '(no subject)'}”` : plural(n, 'email');
+  if (kind === 'forever' && !(await confirmDialog('Delete for good?', `${what} will be deleted for good. This can't be undone.`, 'Delete forever'))) return;
+  if (kind === 'spam' && n > 1 && !(await confirmDialog('Report spam?', `Move ${plural(n, 'email')} to Spam? Gmail learns from this.`, 'Report spam'))) return;
+
+  const leaves = ['archive', 'movelabel', 'trash', 'spam', 'notspam', 'inbox', 'forever'].includes(kind);
+  const putBacks = [];
+  const flags = [];
+  if (leaves) {
+    // Pick the next email so you can keep going, like Gmail.
+    const shown = visible();
+    const keys = new Set(list.map(keyOf));
+    const wasOpen = keys.has(M.selected);
+    let next = null;
+    if (wasOpen) {
+      const at = shown.findIndex((x) => keyOf(x) === M.selected);
+      next = shown.slice(at + 1).find((x) => !keys.has(keyOf(x))) || shown.slice(0, at).reverse().find((x) => !keys.has(keyOf(x))) || null;
+    }
+    for (const m of list) {
+      const archiving = kind === 'archive' || kind === 'movelabel';
+      // Archiving from a label or a search keeps it there; it only leaves the inbox.
+      if (!archiving || M.view.type === 'inbox' || (m.mailbox || 'INBOX') === 'INBOX') putBacks.push(takeOffScreen(m));
+      if (archiving && m.messageId) {
+        for (const copy of M.messages.filter((x) => x !== m && x.accountId === m.accountId && x.messageId === m.messageId)) putBacks.push(takeOffScreen(copy));
+      }
+      M.checked.delete(keyOf(m));
+    }
+    if (wasOpen) M.selected = next && !next.draft ? keyOf(next) : null;
+    if (wasOpen && next && !next.draft) open(next);
+  } else {
+    const field = kind === 'read' || kind === 'unread' ? 'read' : kind === 'star' || kind === 'unstar' ? 'starred' : null;
+    for (const m of list) {
+      if (field) {
+        flags.push([m, field, m[field]]);
+        m[field] = kind === 'read' || kind === 'star';
+      }
+      if (kind === 'label') m.labels = [...new Set([...(m.labels || []), label])];
+    }
+  }
+  render();
+  updateBadge();
+
+  // One server call per account and folder.
+  const groups = new Map();
+  for (const m of list) {
+    const g = m.accountId + '\n' + (m.mailbox || 'INBOX');
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(m);
+  }
+  const change = {
+    archive: { archive: true }, movelabel: { archive: true, addLabels: [label] }, label: { addLabels: [label] },
+    trash: { trash: true }, spam: { spam: true }, forever: { deleteForever: true },
+    read: { read: true }, unread: { read: false }, star: { starred: true }, unstar: { starred: false },
+  }[kind];
+  const results = [];
+  setStatus('Working…', true);
+  try {
+    for (const group of groups.values()) {
+      const { accountId, mailbox = 'INBOX' } = group[0];
+      const uids = group.map((m) => m.uid);
+      if (kind === 'notspam' || kind === 'inbox') await host.mail.moveBack(accountId, uids, mailbox);
+      else results.push({ group, res: await host.mail.modify(accountId, uids, change, mailbox) });
+    }
+  } catch (e) {
+    for (const back of putBacks.reverse()) back();
+    for (const [m, field, was] of flags) m[field] = was;
+    render();
+    updateBadge();
+    setStatus("Couldn't do that: " + (e.message || e));
+    return;
+  }
+
+  const done = {
+    archive: `Archived ${what}.`, movelabel: `Moved ${what} to ${label}.`, label: `Labeled ${what} “${label}”.`,
+    trash: `Moved ${what} to Trash.`, spam: `Reported ${what} as spam.`, notspam: `Moved ${what} back to the inbox.`,
+    inbox: `Moved ${what} back to the inbox.`, forever: `Deleted ${what} for good.`,
+    read: `Marked ${what} as read.`, unread: `Marked ${what} as unread.`, star: `Starred ${what}.`, unstar: `Took the star off ${what}.`,
+  }[kind];
+  let undo = null;
+  if (kind === 'archive' || kind === 'movelabel')
+    undo = async () => {
+      for (const m of list.filter((x) => x.messageId))
+        await host.mail.modifyMatching(m.accountId, `rfc822msgid:${m.messageId}`, { toInbox: true, ...(kind === 'movelabel' ? { removeLabels: [label] } : {}) }, 5);
+    };
+  else if (kind === 'trash' || kind === 'spam')
+    undo = async () => {
+      for (const { group, res } of results) if (res?.trashUids?.length) await host.mail.moveBack(group[0].accountId, res.trashUids, kind === 'trash' ? '\\Trash' : '\\Junk');
+    };
+  if (kind === 'notspam') list.forEach(markSafe);
+  if (leaves) M.labelMsgs.forEach((v, k) => !(M.view.type === 'label' && k === M.view.accountId + '|' + M.view.mailbox) && M.labelMsgs.delete(k));
+  setStatus(done, false, undo ? { label: 'Undo', onclick: () => undoChange(undo) } : null);
+  if (kind === 'notspam' || kind === 'inbox') refresh({ quiet: true });
+}
+
+async function undoChange(fn) {
+  setStatus('Putting it back…', true);
+  try {
+    await fn();
+    M.labelMsgs.clear();
+    if (M.view.type === 'search') searchAll(M.view.query);
+    else if (M.view.type === 'label') openLabel(M.view.accountId, { fullName: M.view.mailbox, name: M.view.name, kind: M.view.kind });
+    await refresh({ quiet: true });
+    setStatus('Put back.');
+  } catch (e) {
+    setStatus("Couldn't put it back: " + (e.message || e));
+  }
+}
+
+/** Gmail labels you can put an email in: every label from the sidebar, plus your smart folder names. */
+async function pickLabel(m, verb) {
+  const names = [...new Set((M.labels.get(m.accountId) || []).filter((f) => f.kind === 'label').map((f) => f.fullName))].sort((a, b) => a.localeCompare(b));
+  const input = el('input', { class: 'field', list: 'pamLabelList', placeholder: 'Pick a label or type a new one (use / for a sub-label)', style: { width: '100%' } });
+  const listEl = el('datalist', { id: 'pamLabelList' }, names.map((n) => el('option', { value: n })));
+  const ok = await dialog({
+    title: verb === 'move' ? 'Move to label' : 'Label as',
+    body: el('div', {}, el('p', { class: 'hint' }, verb === 'move' ? 'Adds the Gmail label and takes it out of the inbox.' : 'Adds a Gmail label. New labels are made for you.'), input, listEl),
+    buttons: [{ label: 'Cancel', value: false }, { label: verb === 'move' ? 'Move' : 'Add label', value: true, primary: true }],
+  });
+  const name = input.value.trim().replace(/^\/+|\/+$/g, '');
+  return ok && name ? name : null;
+}
+async function labelMail(list, verb) {
+  if (!list.length) return;
+  const name = await pickLabel(list[0], verb);
+  if (name) changeMail(list, verb === 'move' ? 'movelabel' : 'label', { label: name });
+}
+
+// ---------------------------------------------------------------------------
+// Print and PDF (v9.5)
+// ---------------------------------------------------------------------------
+async function ensureBody(m) {
+  const k = keyOf(m);
+  if (!M.bodies.has(k)) {
+    M.bodies.set(k, await host.mail.message(m.accountId, m.uid, m.mailbox || 'INBOX'));
+    m.read = true;
+    updateBadge();
+  }
+  return M.bodies.get(k);
+}
+
+/** The email as a printable page, or null if cancelled. Asks first if it has web pictures that are still hidden. */
+async function buildPage(m, verb) {
+  let body;
+  try {
+    body = await ensureBody(m);
+  } catch (e) {
+    toast("Couldn't open the email: " + (e.message || e), { error: true });
+    return null;
+  }
+  let pictures = M.showPictures.has(keyOf(m));
+  if (!pictures && hasWebPictures(body.html)) {
+    const v = await dialog({
+      title: `${verb} with pictures?`,
+      body: 'This email has pictures from the web (logos, photos). Loading them can tell the sender the email was opened.',
+      buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Without pictures', value: 'no' }, { label: 'Include pictures', value: 'yes', primary: true }],
+    });
+    if (!v || v === 'cancel') return null;
+    pictures = v === 'yes';
+  }
+  return emailPage(m, body, { pictures, account: accountLabel(m), date: longDate(m.date) });
+}
+
+async function printMail(m) {
+  const html = await buildPage(m, 'Print');
+  if (html) await printEmailPage(html);
+}
+
+/** Ctrl+P / the Print button in Mail: prints the email that's open. */
+export function printSelected() {
+  const m = current();
+  if (!m || m.draft) {
+    toast('Open an email first, then press Print.');
+    return false;
+  }
+  printMail(m);
+  return true;
+}
+
+const pdfName = (m) => ((m.subject || 'Email').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Email') + '.pdf';
+
+/** Saves the email as a PDF file, or opens it in Documents to mark up, sign or combine. */
+async function mailToPdf(m, { openIt = false } = {}) {
+  const html = await buildPage(m, openIt ? 'Open' : 'Save');
+  if (!html) return;
+  busy('Making the PDF…');
+  try {
+    const bytes = await emailPdf(html);
+    busy(false);
+    if (!bytes) return toast('Saving emails as PDF works in the PDF and Moore Windows app.', { error: true });
+    if (openIt) {
+      if (M.onOpenFile) await M.onOpenFile({ name: pdfName(m), bytes });
+    } else {
+      const path = await host.saveFile({ name: pdfName(m), bytes, mime: 'application/pdf' });
+      if (path) toast('Saved to ' + path);
+    }
+  } catch (e) {
+    busy(false);
+    toast("Couldn't make the PDF: " + (e.message || e), { error: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// "More" menu in the reader (v9.5)
+// ---------------------------------------------------------------------------
+function popMenu(anchor, items) {
+  document.querySelector('.mail-menu')?.remove();
+  const menu = el(
+    'div',
+    { class: 'menu-pop mail-menu', role: 'menu' },
+    items.filter(Boolean).map((it) =>
+      it === '-'
+        ? el('div', { class: 'menu-sep' })
+        : el('button', { class: 'menu-item', role: 'menuitem', onclick: () => (menu.remove(), it.run()) }, icon(it.icon), el('span', {}, it.label), it.kbd ? el('span', { class: 'kbd' }, it.kbd) : '')
+    )
+  );
+  document.body.append(menu);
+  const r = anchor.getBoundingClientRect();
+  const w = menu.offsetWidth;
+  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+  const below = r.bottom + 4;
+  menu.style.top = (below + menu.offsetHeight > window.innerHeight - 8 ? Math.max(8, r.top - menu.offsetHeight - 4) : below) + 'px';
+  const away = (e) => {
+    if (!menu.contains(e.target)) {
+      menu.remove();
+      document.removeEventListener('mousedown', away, true);
+    }
+  };
+  setTimeout(() => document.addEventListener('mousedown', away, true), 0);
+}
+
+function moreMenu(btn, m) {
+  const sv = specialView();
+  popMenu(btn, [
+    { icon: 'print', label: 'Print', kbd: 'Ctrl+P', run: () => printMail(m) },
+    { icon: 'picture_as_pdf', label: 'Save as PDF…', run: () => mailToPdf(m) },
+    { icon: 'edit_document', label: 'Open as PDF in Documents', run: () => mailToPdf(m, { openIt: true }) },
+    '-',
+    { icon: m.read ? 'mark_email_unread' : 'drafts', label: m.read ? 'Mark as unread' : 'Mark as read', kbd: m.read ? 'Shift+U' : 'Shift+I', run: () => changeMail([m], m.read ? 'unread' : 'read') },
+    { icon: m.starred ? 'star' : 'star_outline', label: m.starred ? 'Remove star' : 'Add star', kbd: 'S', run: () => changeMail([m], m.starred ? 'unstar' : 'star') },
+    { icon: 'label', label: 'Label as…', kbd: 'L', run: () => labelMail([m], 'label') },
+    !sv ? { icon: 'drive_file_move', label: 'Move to label…', kbd: 'V', run: () => labelMail([m], 'move') } : null,
+    '-',
+    sv === 'spam' ? { icon: 'report_off', label: 'Not spam', run: () => changeMail([m], 'notspam') } : { icon: 'report', label: 'Report spam', kbd: '!', run: () => changeMail([m], 'spam') },
+    sv ? { icon: 'delete_forever', label: 'Delete forever', run: () => changeMail([m], 'forever') } : null,
+    { icon: 'content_copy', label: 'Copy sender address', run: () => navigator.clipboard.writeText(m.fromAddress).then(() => toast('Copied ' + m.fromAddress)) },
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard (v9.5): Gmail-style keys while Mail is showing and you're not typing
+// ---------------------------------------------------------------------------
+const KEYS = [
+  ['J / K', 'Next / previous email'],
+  ['R', 'Reply'], ['A', 'Reply all'], ['F', 'Forward'], ['C', 'New email'],
+  ['E', 'Archive'], ['# or Delete', 'Move to Trash'], ['!', 'Report spam'],
+  ['S', 'Star / unstar'], ['Shift+U', 'Mark unread'], ['Shift+I', 'Mark read'],
+  ['L', 'Label as…'], ['V', 'Move to label…'], ['X', 'Tick the open email'], ['Esc', 'Untick everything'],
+  ['/', 'Search'], ['Ctrl+P', 'Print the open email'], ['Ctrl+1 / Ctrl+2', 'Documents / Mail'],
+];
+
+export function shortcutsHelp() {
+  dialog({
+    title: 'Mail keyboard shortcuts',
+    width: '480px',
+    body: el('table', { style: { width: '100%', borderCollapse: 'collapse' } }, KEYS.map(([k, d]) => el('tr', {}, el('td', { style: { padding: '4px 12px 4px 0', fontWeight: 600, whiteSpace: 'nowrap' } }, k), el('td', {}, d)))),
+  });
+}
+
+function step(dir) {
+  const shown = visible().filter((m) => !m.draft);
+  if (!shown.length) return;
+  const at = shown.findIndex((m) => keyOf(m) === M.selected);
+  const next = at < 0 ? shown[0] : shown[Math.max(0, Math.min(shown.length - 1, at + dir))];
+  if (next && keyOf(next) !== M.selected) {
+    open(next);
+    setTimeout(() => document.querySelector('.mail-row.on')?.scrollIntoView({ block: 'nearest' }), 0);
+  }
+}
+
+/** Returns true when the key was a Mail shortcut (app.js then stops it). */
+export function handleKey(e) {
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return false;
+  if (!M.settings || !signedIn().length) return false;
+  const m = current();
+  const list = targets();
+  const sv = specialView();
+  switch (e.key) {
+    case 'j': return step(1), true;
+    case 'k': return step(-1), true;
+    case 'c': return composeMail(), true;
+    case '/': return $('#gsInput')?.focus(), true;
+    case 'r': return m && !m.draft ? (reply(m, false), true) : false;
+    case 'a': return m && !m.draft ? (reply(m, true), true) : false;
+    case 'f': return m && !m.draft ? (forward(m), true) : false;
+    case 'e': return list.length && !sv ? (changeMail(list, 'archive'), true) : false;
+    case '#':
+    case 'Delete':
+      if (sv) return list.length ? (changeMail(list, 'forever'), true) : false;
+      if (M.checked.size) return list.length ? (changeMail(list, 'trash'), true) : false;
+      return deleteSelected();
+    case '!': return list.length ? (changeMail(list, sv === 'spam' ? 'notspam' : 'spam'), true) : false;
+    case 's': return list.length ? (changeMail(list, list.every((x) => x.starred) ? 'unstar' : 'star'), true) : false;
+    case 'U': return list.length ? (changeMail(list, 'unread'), true) : false;
+    case 'I': return list.length ? (changeMail(list, 'read'), true) : false;
+    case 'l': return list.length ? (labelMail(list, 'label'), true) : false;
+    case 'v': return list.length && !sv ? (labelMail(list, 'move'), true) : false;
+    case 'x':
+      if (!m) return false;
+      M.checked.has(keyOf(m)) ? M.checked.delete(keyOf(m)) : M.checked.add(keyOf(m));
+      render();
+      return true;
+    case 'Escape':
+      if (!M.checked.size) return false;
+      M.checked.clear();
+      render();
+      return true;
+    case '?': return shortcutsHelp(), true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Address suggestions in To / Cc / Bcc (v9.5): people you've emailed or heard from
+// ---------------------------------------------------------------------------
+function knownContacts() {
+  const map = new Map();
+  const add = (name, addr, weight) => {
+    addr = (addr || '').trim().toLowerCase();
+    if (!addr.includes('@') || /no-?reply|donotreply|mailer-daemon|notifications?@|bounce/.test(addr)) return;
+    name = (name || '').replace(/"/g, '').trim();
+    if (name.toLowerCase() === addr) name = '';
+    const cur = map.get(addr);
+    if (!cur) map.set(addr, { name, addr, n: weight });
+    else {
+      cur.n += weight;
+      if (!cur.name && name) cur.name = name;
+    }
+  };
+  for (const m of allLoaded()) {
+    if (m.clutter || m.bulk) continue;
+    add(m.fromName, m.fromAddress, 1);
+    for (const a of [...splitAddresses(m.to), ...splitAddresses(m.cc)]) add(a.replace(/<[^>]*>/, ''), emailOnly(a), 2); // people you write to count more
+  }
+  for (const i of allIdentities()) map.delete(i.address.toLowerCase());
+  return [...map.values()];
+}
+
+/** Wraps an address box with a drop-down of matching people. Returns the wrapper. */
+function withSuggestions(input) {
+  const pop = el('div', { class: 'addr-pop', role: 'listbox' });
+  const wrap = el('div', { class: 'addr-wrap' }, input, pop);
+  let items = [];
+  let at = 0;
+  let contacts = null;
+  const lastToken = () => {
+    const v = input.value;
+    const i = Math.max(v.lastIndexOf(','), v.lastIndexOf(';'));
+    return { start: i + 1, text: v.slice(i + 1).trim().toLowerCase() };
+  };
+  const hide = () => ((items = []), pop.classList.remove('show'));
+  const show = () => {
+    const { text } = lastToken();
+    if (text.length < 1) return hide();
+    contacts ||= knownContacts();
+    items = contacts
+      .filter((c) => c.addr.includes(text) || c.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(text)) || c.name.toLowerCase().startsWith(text))
+      .sort((a, b) => b.n - a.n)
+      .slice(0, 7);
+    at = 0;
+    if (!items.length) return hide();
+    pop.replaceChildren(
+      ...items.map((c, i) =>
+        el('div', { class: 'addr-item' + (i === at ? ' on' : ''), role: 'option', onmousedown: (e) => (e.preventDefault(), pick(i)) },
+          el('span', { class: 'addr-name' }, c.name || c.addr), c.name ? el('small', {}, c.addr) : '')
+      )
+    );
+    pop.classList.add('show');
+  };
+  const pick = (i) => {
+    const c = items[i];
+    if (!c) return;
+    const { start } = lastToken();
+    const safeName = c.name && !/[,;<>"]/.test(c.name);
+    input.value = input.value.slice(0, start).replace(/\s*$/, start ? ' ' : '') + (safeName ? `${c.name} <${c.addr}>` : c.addr) + ', ';
+    hide();
+    input.focus();
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const mark = () => [...pop.children].forEach((n, i) => n.classList.toggle('on', i === at));
+  input.addEventListener('input', (e) => (e.isTrusted ? show() : null));
+  input.addEventListener('blur', () => setTimeout(hide, 120));
+  input.addEventListener('keydown', (e) => {
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') (e.preventDefault(), (at = (at + 1) % items.length), mark());
+    else if (e.key === 'ArrowUp') (e.preventDefault(), (at = (at - 1 + items.length) % items.length), mark());
+    else if ((e.key === 'Enter' && !e.ctrlKey) || e.key === 'Tab') (e.preventDefault(), e.stopPropagation(), pick(at));
+    else if (e.key === 'Escape') (e.preventDefault(), e.stopPropagation(), hide());
+  });
+  return wrap;
+}
+
 function renderReader() {
   const box = $('#mailRead');
   if (!box) return;
@@ -989,13 +1467,28 @@ function renderReader() {
   const summary = M.summaries.get(keyOf(m));
   const replies = M.replies.get(keyOf(m));
 
+  const sv = specialView();
+  const moreBtn = el('button', { class: 'btn btn-tonal', title: 'More: Save as PDF, Open in Documents, unread, labels, spam…', onclick: (e) => moreMenu(e.currentTarget, m) }, icon('more_horiz'), 'More');
   const actions = el(
     'div',
     { class: 'mail-actions' },
-    el('button', { class: 'btn btn-tonal', onclick: () => reply(m, false) }, icon('reply'), 'Reply'),
-    el('button', { class: 'btn btn-tonal', onclick: () => reply(m, true) }, icon('reply_all'), 'Reply all'),
-    el('button', { class: 'btn btn-tonal', onclick: () => forward(m) }, icon('forward'), 'Forward'),
-    el('button', { class: 'btn btn-tonal mail-del-btn', title: 'Move to Trash (Del). Undo puts it back.', onclick: () => deleteMail(m) }, icon('delete'), 'Delete'),
+    el('button', { class: 'btn btn-tonal', title: 'Reply (R)', onclick: () => reply(m, false) }, icon('reply'), 'Reply'),
+    el('button', { class: 'btn btn-tonal', title: 'Reply all (A)', onclick: () => reply(m, true) }, icon('reply_all'), 'Reply all'),
+    el('button', { class: 'btn btn-tonal', title: 'Forward (F)', onclick: () => forward(m) }, icon('forward'), 'Forward'),
+    sv
+      ? [
+          sv === 'spam'
+            ? el('button', { class: 'btn btn-tonal', title: 'Not spam: back to the inbox (!)', onclick: () => changeMail([m], 'notspam') }, icon('report_off'), 'Not spam')
+            : el('button', { class: 'btn btn-tonal', title: 'Take it out of Trash and put it back in the inbox', onclick: () => changeMail([m], 'inbox') }, icon('move_to_inbox'), 'Move to inbox'),
+          el('button', { class: 'btn btn-tonal mail-del-btn', title: 'Delete for good (Del). This can\'t be undone.', onclick: () => changeMail([m], 'forever') }, icon('delete_forever'), 'Delete forever'),
+        ]
+      : [
+          el('button', { class: 'btn btn-tonal', title: 'Archive: out of the inbox, still in All Mail and its labels (E). Undo puts it back.', onclick: () => changeMail([m], 'archive') }, icon('archive'), 'Archive'),
+          el('button', { class: 'btn btn-tonal mail-del-btn', title: 'Move to Trash (Del). Undo puts it back.', onclick: () => deleteMail(m) }, icon('delete'), 'Delete'),
+        ],
+    el('button', { class: 'btn btn-tonal mail-star-btn' + (m.starred ? ' on' : ''), title: m.starred ? 'Remove star (S)' : 'Star it (S)', onclick: () => changeMail([m], m.starred ? 'unstar' : 'star') }, icon(m.starred ? 'star' : 'star_outline'), m.starred ? 'Starred' : 'Star'),
+    el('button', { class: 'btn btn-tonal mail-print-btn', title: 'Print this email (Ctrl+P)', onclick: () => printMail(m) }, icon('print'), 'Print'),
+    moreBtn,
     el('span', { class: 'mail-actions-sep' }),
     el('button', { class: 'btn btn-tonal ai-btn', onclick: () => summarize(m) }, icon('summarize'), 'Summarize'),
     el('button', { class: 'btn btn-tonal ai-btn', onclick: () => suggestReplies(m) }, icon('auto_awesome'), 'Suggest replies'),
@@ -1035,7 +1528,8 @@ function renderReader() {
         el('div', {},
           el('div', { class: 'mail-who-name' }, m.fromName || m.fromAddress, el('small', {}, ' <' + m.fromAddress + '>')),
           el('div', { class: 'mail-who-to' }, 'To: ' + m.to + (m.cc ? '   Cc: ' + m.cc : '')),
-          el('div', { class: 'mail-who-to' }, longDate(m.date) + '  ·  ' + (acct ? acct.name || acct.email : ''))
+          el('div', { class: 'mail-who-to' }, longDate(m.date) + '  ·  ' + (acct ? acct.name || acct.email : '')),
+          m.labels?.length ? el('div', { class: 'mail-labels' }, m.labels.map((l) => el('span', { class: 'mchip plain' }, icon('label'), l))) : ''
         )
       ),
       actions,
@@ -1486,16 +1980,20 @@ export async function composeMail({
     autosave();
   };
 
-  const send = async () => {
-    const id = fromIdentity();
-    if (!id) return say('Pick a From address.');
-    if (!toBox.value.trim() && !ccBox.value.trim() && !bccBox.value.trim()) return say('Add who it goes to.');
-    if (!subjBox.value.trim() && !(await confirmDialog('No subject', 'Send without a subject?', 'Send anyway'))) return;
-    let text = bodyBox.value;
-    if (sigOn.checked && id.signature) text = text.replace(/\s+$/, '') + '\n\n' + id.signature;
-    sendBtn.disabled = true;
+  // Undo send (v9.5): the window hides and the email waits a few seconds before it really goes.
+  let pending = null;
+  const reshow = (message) => {
+    if (composeOpen && composeOpen !== me) composeOpen.close(true);
+    backdrop.style.display = '';
+    composeOpen = me;
+    document.body.classList.add('composing');
+    sendBtn.disabled = false;
+    finished = false;
+    say(message);
+    bodyBox.focus();
+  };
+  const reallySend = async (id, text) => {
     finished = true; // no autosave while sending
-    say('Sending…', true);
     await saving;
     try {
       await host.mail.send({
@@ -1519,10 +2017,52 @@ export async function composeMail({
       toast(`Sent from ${id.address} at ${pad(new Date().getHours())}${pad(new Date().getMinutes())}.`);
       close(true);
     } catch (e) {
-      say('Not sent: ' + e.message);
-      sendBtn.disabled = false;
-      finished = false;
+      if (backdrop.style.display === 'none') toast('Not sent: ' + e.message, { error: true, ms: 7000 });
+      reshow('Not sent: ' + e.message);
     }
+  };
+
+  const send = async () => {
+    if (pending) return;
+    const id = fromIdentity();
+    if (!id) return say('Pick a From address.');
+    if (!toBox.value.trim() && !ccBox.value.trim() && !bccBox.value.trim()) return say('Add who it goes to.');
+    if (!subjBox.value.trim() && !(await confirmDialog('No subject', 'Send without a subject?', 'Send anyway'))) return;
+    let text = bodyBox.value;
+    if (sigOn.checked && id.signature) text = text.replace(/\s+$/, '') + '\n\n' + id.signature;
+    sendBtn.disabled = true;
+    const wait = undoSendSeconds();
+    if (!wait) {
+      say('Sending…', true);
+      return reallySend(id, text);
+    }
+    // Hide the window, keep a copy in Drafts in case the app closes, and count down.
+    saveDraft();
+    backdrop.style.display = 'none';
+    if (composeOpen === me) composeOpen = null;
+    document.body.classList.remove('composing');
+    let left = wait;
+    const count = el('span', {}, `Sending in ${left}…`);
+    const finish = (undone) => {
+      clearInterval(pending.timer);
+      pending.bar.remove();
+      pending = null;
+      if (undone) reshow('Not sent. Change anything you like, then Send.');
+      else reallySend(id, text);
+    };
+    const bar = el('div', { class: 'send-undo', role: 'status' },
+      el('span', { class: 'spinner small' }), count,
+      el('button', { class: 'btn btn-text', onclick: () => finish(true) }, icon('undo'), 'Undo'),
+      el('button', { class: 'btn btn-text', onclick: () => finish(false) }, icon('send'), 'Send now'));
+    document.body.append(bar);
+    pending = {
+      bar,
+      timer: setInterval(() => {
+        left -= 1;
+        if (left <= 0) finish(false);
+        else count.textContent = `Sending in ${left}…`;
+      }, 1000),
+    };
   };
   sendBtn.addEventListener('click', send);
 
@@ -1538,8 +2078,8 @@ export async function composeMail({
     el('div', { class: 'compose-scroll' },
       el('div', { class: 'compose-grid' },
         el('label', {}, 'From'), el('div', { class: 'compose-row' }, fromSel, el('button', { class: 'btn btn-tonal ai-btn', onclick: pickFrom, title: 'Choose the right business address' }, icon('auto_awesome'), 'Pick for me')),
-        el('label', {}, 'To'), toBox,
-        el('label', {}, 'Cc / Bcc'), el('div', { class: 'compose-row' }, ccBox, bccBox),
+        el('label', {}, 'To'), withSuggestions(toBox),
+        el('label', {}, 'Cc / Bcc'), el('div', { class: 'compose-row' }, withSuggestions(ccBox), withSuggestions(bccBox)),
         el('label', {}, 'Subject'), subjBox
       ),
       el('div', { class: 'compose-ai' },
@@ -1600,11 +2140,14 @@ export async function composeMail({
       finished = true;
     }
     backdrop.remove();
-    document.body.classList.remove('composing');
-    composeOpen = null;
+    if (!composeOpen || composeOpen === me) {
+      document.body.classList.remove('composing');
+      composeOpen = null;
+    }
     resolveClosed(sent);
   }
-  composeOpen = { close, addFiles: (list) => (files.push(...list), showAtts()) };
+  const me = { close, addFiles: (list) => (files.push(...list), showAtts()) };
+  composeOpen = me;
 
   document.body.append(backdrop);
   document.body.classList.add('composing');

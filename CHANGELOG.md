@@ -2,6 +2,26 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.5.0 — Sunday, November 15, 2026
+**A Print button for documents and emails, plus the email features that were missing**
+- **Print button at the top of the window**, next to Save, in both Documents and Mail. In Documents it prints the open PDF; in Mail it prints the email you're reading. **Ctrl+P** does the same in both.
+  - Emails print as a clean letter-size page: your account at the top, then the subject, From, To, Cc, Date (military time), the attachment names, and the message. Long emails break across pages properly.
+  - If an email has pictures from the web that are still hidden, it asks first: **Include pictures** or **Without pictures** (loading them can tell the sender it was opened). Scripts and tracking links never come along.
+  - There's also a **Print** button right in the email reader.
+- **Save an email as a PDF**, or **Open it as a PDF in Documents** to mark it up, sign it or combine it with other files (reader › **More**).
+- **Archive** (E): takes an email out of the inbox; it stays in All Mail and under its labels. **Undo** puts it back.
+- **Stars**: a star on every email in the list and a **Star** button in the reader (S).
+- **Mark as unread / read** (Shift+U / Shift+I). Opening an email again marks it read.
+- **Labels**: **Label as…** (L) adds any Gmail label (type a new one to make it, use / for a sub-label). **Move to label…** (V) labels it and takes it out of the inbox. The email's labels show under the sender.
+- **Report spam** (!) moves it to Gmail's Spam (Gmail learns from it), with Undo.
+- **Spam and Trash** are in the sidebar under each account's Gmail labels. From there: **Not spam** / **Move to inbox**, or **Delete forever** (asks first; only allowed in Spam or Trash).
+- **Tick several emails** with the checkboxes (or X), or tick them all with the box by the folder name. The bar that appears can Archive, Delete, Spam, mark Read / Unread, Star or Label them all at once.
+- **Undo send**: after you press Send, the email waits 10 seconds with **Undo** and **Send now**. Undo brings the email back exactly as it was. Change the wait (Off, 5, 10, 20 or 30 seconds) in Settings › Email › More. A copy sits in Drafts while it waits, in case the app closes.
+- **Address suggestions** in To, Cc and Bcc: start typing a name or address and pick from people you've emailed or heard from (newsletters and no-reply senders are left out). Arrow keys and Enter or Tab pick one.
+- **Gmail-style keyboard shortcuts** in Mail: J / K next and previous, R reply, A reply all, F forward, C new email, E archive, # or Delete trash, ! spam, S star, Shift+U / Shift+I unread / read, L label, V move, X tick, Esc untick, / search, Ctrl+P print. Press **?** (or Ctrl+/) for the list.
+- **Copy sender address** in the reader's More menu.
+- New code: `wwwroot/js/print.js` (shared printing and the email print page), `MailChange.Spam` and `MailChange.DeleteForever` in `MailService.ApplyAsync` (delete forever refuses anything outside Trash or Spam). Claude's mail assistant can't use either one.
+
 ## v9.4.0 — Saturday, November 14, 2026
 **One search bar that's always there, and a delete button on every email**
 - **Permanent search bar** at the top of the window, in both Documents and Mail. Ctrl+F jumps to it from anywhere.

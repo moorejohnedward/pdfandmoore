@@ -302,3 +302,46 @@ html[data-theme='light'] .compose { background: #fff; }
 .mail-row:hover .mail-del, .mail-row.on .mail-del, .mail-row:focus-within .mail-del { opacity: 1; }
 .mail-del:hover { background: color-mix(in srgb, #ff5f5f 18%, transparent); color: #ff5f5f; }
 .mail-del-btn:hover { color: #ff5f5f; }
+
+/* v9.5: Print button at the top, ticking several emails, stars, Undo send, address suggestions */
+.print-btn .ms { color: var(--ocean); }
+.mail-check { width: 18px; height: 18px; margin: 0 2px 0 0; accent-color: var(--ocean); cursor: pointer; flex: none; align-self: center; }
+.mail-list-title .mail-check { margin-right: 6px; }
+.mail-row.ticked { background: color-mix(in srgb, var(--ocean) 10%, transparent); }
+.mail-star {
+  align-self: center; flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; margin: -6px -4px; border: 0; border-radius: 15px;
+  background: none; color: var(--muted); opacity: 0.55; transition: opacity 0.15s, color 0.15s;
+}
+.mail-star .ms { font-size: 20px; }
+.mail-row:hover .mail-star, .mail-row.on .mail-star { opacity: 1; }
+.mail-star.on { color: var(--sun); opacity: 1; }
+.mail-star:hover { color: var(--sun); background: var(--hover); }
+.mail-star-btn.on .ms { color: var(--sun); }
+.mail-print-btn .ms { color: var(--ocean); }
+.mail-bulk {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 10px;
+  background: color-mix(in srgb, var(--ocean) 14%, transparent); font-size: 14px;
+}
+.mail-bulk b { margin-right: 6px; }
+.mail-bulk .btn.small { padding: 4px 10px; min-height: 0; font-size: 13.5px; }
+.mail-bulk .btn.small .ms { font-size: 18px; }
+.mail-labels { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.mail-menu { min-width: 260px; }
+
+.send-undo {
+  position: fixed; left: 24px; bottom: 24px; z-index: 5001; display: flex; align-items: center; gap: 12px;
+  background: #303134; color: #fff; padding: 8px 10px 8px 18px; border-radius: 8px; box-shadow: var(--shadow-2); font-size: 15px;
+}
+.send-undo .btn-text { color: #8fd3ff; }
+
+.addr-wrap { position: relative; flex: 1 1 auto; min-width: 0; }
+.addr-wrap > .field { width: 100%; box-sizing: border-box; }
+.addr-pop {
+  display: none; position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 50;
+  background: var(--surface, #fff); color: var(--text); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-2); padding: 4px 0; max-height: 280px; overflow: auto;
+}
+.addr-pop.show { display: block; }
+.addr-item { display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; cursor: pointer; }
+.addr-item.on, .addr-item:hover { background: var(--hover); }
+.addr-item small { color: var(--muted); }
+.addr-name { font-weight: 600; }

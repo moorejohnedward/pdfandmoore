@@ -466,6 +466,25 @@ public sealed class MailService
             result.TrashMailbox = trash.FullName;
             result.TrashUids = map.Destination.Select(u => u.Id).ToList();
         }
+        else if (change.Spam)
+        {
+            // Report spam (v9.5): Gmail learns from mail moved into Spam. TrashMailbox/TrashUids say where it went, for Undo.
+            var junk = await ResolveFolderAsync(client, "\\Junk", ct);
+            var map = await folder.MoveToAsync(uids, junk, ct);
+            result.TrashMailbox = junk.FullName;
+            result.TrashUids = map.Destination.Select(u => u.Id).ToList();
+        }
+        else if (change.DeleteForever)
+        {
+            // Delete for good (v9.5): only from Trash or Spam, so a slip can never wipe mail straight out of the inbox.
+            var trash = await ResolveFolderAsync(client, "\\Trash", ct);
+            IMailFolder? junk = null;
+            try { junk = await ResolveFolderAsync(client, "\\Junk", ct); } catch (InvalidOperationException) { }
+            bool allowed = folder.FullName == trash.FullName || (junk != null && folder.FullName == junk.FullName);
+            if (!allowed) throw new InvalidOperationException("Emails can only be deleted for good from Trash or Spam.");
+            await folder.AddFlagsAsync(uids, MessageFlags.Deleted, true, ct);
+            await folder.ExpungeAsync(uids, ct);
+        }
     }
 
     /// <summary>Signs in for reading and sending, to check an account's settings.</summary>

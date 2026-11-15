@@ -148,6 +148,10 @@ public sealed class MailChange
     public bool? Starred { get; set; }
     /// <summary>Move to Trash (Gmail empties it after 30 days, so it can be undone until then).</summary>
     public bool Trash { get; set; }
+    /// <summary>Report spam (v9.5): moves to Gmail's Spam folder. Undo with mailMoveBack from "\\Junk".</summary>
+    public bool Spam { get; set; }
+    /// <summary>Delete for good (v9.5). Only allowed on mail that is already in Trash or Spam.</summary>
+    public bool DeleteForever { get; set; }
 }
 
 /// <summary>What a change did, with the IDs needed to undo it.</summary>

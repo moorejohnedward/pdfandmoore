@@ -101,3 +101,18 @@ Each entry records what was built, why, and the concepts behind it. CHANGELOG.md
 
 **Concepts:** separation of concerns and dependency injection, debouncing and stale-result races, optimistic UI updates with rollback, accessible custom controls, responsive flex layout.
 
+## 2026-11-15: v9.5, a Print button and the missing email features
+
+**Problem:** Printing lived only on the Documents ribbon, and there was no way to print an email at all. Mail also lacked everyday Gmail tools: archive, stars, unread, labels, spam, bulk actions, undo send and address suggestions.
+
+**Built**
+- **One print path for everything** (`print.js`): any PDF is drawn page by page into a hidden print area and handed to the Windows print dialog. An email is first laid out as an HTML page and turned into a PDF by the hidden Edge view the app already uses for Office files, so long emails get real page breaks.
+- **Sanitizing untrusted HTML before printing:** the email's HTML is parsed with DOMParser, and scripts, frames, forms, event handlers (onclick…) and javascript: links are removed. A Content-Security-Policy on the print page blocks anything that slips through and keeps web pictures out unless I choose to include them.
+- **Optimistic changes with Undo** for archive, spam and trash, grouped into one server call per account and folder. Undoing an archive finds the email again with Gmail's `rfc822msgid:` search, because its ID in the inbox is gone once it's archived.
+- **Guard rails on the C# side:** "Delete forever" is refused unless the email is already in Trash or Spam, and Claude's mail assistant builds its own changes from a fixed list, so it can't report spam or delete for good.
+- **Undo send** hides the compose window and waits with a countdown; Undo shows the same window again with nothing lost, and a draft is saved while it waits.
+- **Address suggestions** built from mail already loaded, weighted so people I write to rank above people who write to me.
+- **Testing:** headless Chrome with a fake WebView2 host: Print in both tabs and Ctrl+P, the pictures question, HTML cleaning, star, archive and its Undo, ticking and bulk unread, Save as PDF, spam with Undo, the Trash view, suggestions, and Undo send / Send now.
+
+**Concepts:** HTML sanitizing and Content-Security-Policy, print pipelines (HTML → PDF → page images), IMAP MOVE and EXPUNGE, reversible operations, keyboard-driven UI, autocomplete ranking.
+

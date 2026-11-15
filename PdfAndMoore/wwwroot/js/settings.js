@@ -103,6 +103,10 @@ export async function openSettings(startTab = 'look') {
   const rulesBox = el('div', { class: 'rules' });
   const fetchCount = el('input', { class: 'field', type: 'number', min: 10, max: 500, style: { width: '110px' } });
   const autoSort = el('input', { type: 'checkbox' });
+  // Undo send (v9.5): how long a sent email waits so you can take it back. Kept on this PC.
+  const undoSend = el('select', { class: 'field', style: { width: '220px' } },
+    [0, 5, 10, 20, 30].map((n) => el('option', { value: String(n) }, n ? `${n} seconds` : 'Off (send right away)')));
+  undoSend.value = localStorage.getItem('pam.undoSend') ?? '10';
   let ms = mailSettings ? structuredClone(mailSettings) : null;
 
   const drawRules = () =>
@@ -151,7 +155,8 @@ export async function openSettings(startTab = 'look') {
       rulesBox,
       el('h3', {}, 'More'),
       el('label', { class: 'check-row' }, autoSort, 'Let Claude sort new mail automatically (API key option)'),
-      el('label', { class: 'field-label' }, 'How many recent emails to load per account', fetchCount)
+      el('label', { class: 'field-label' }, 'How many recent emails to load per account', fetchCount),
+      el('label', { class: 'field-label' }, 'Undo send: wait before an email really goes', undoSend)
     );
   };
 
@@ -251,6 +256,9 @@ export async function openSettings(startTab = 'look') {
     ms.folders = folderBox.value.split('\n').map((x) => x.trim()).filter(Boolean);
     ms.fetchCount = Number(fetchCount.value) || 50;
     ms.autoSort = autoSort.checked;
+    try {
+      localStorage.setItem('pam.undoSend', undoSend.value);
+    } catch {}
     ms.aboutMe = aboutMe.value.trim();
     try {
       await saveMail();

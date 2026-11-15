@@ -20,6 +20,7 @@ import * as newdocui from './newdocui.js';
 import * as restore from './restore.js';
 import * as mail from './mail.js';
 import * as search from './search.js';
+import { printPdfBytes } from './print.js';
 import { openSettings, initLook } from './settings.js';
 
 const APP = 'PDF and Moore';
@@ -284,34 +285,22 @@ async function compressDialog() {
 }
 
 async function printDoc() {
-  if (!state.doc) return;
+  if (!state.doc) return toast('Open a document first, then press Print.');
   busy('Preparing to print…');
+  let bytes;
   try {
-    const { bytes } = await buildPdf(state.doc);
-    const { pdfjsLib } = await import('./doc.js');
-    const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
-    const area = $('#printArea');
-    area.replaceChildren();
-    for (let i = 1; i <= pdf.numPages; i++) {
-      busyProgress((i - 1) / pdf.numPages);
-      const p = await pdf.getPage(i);
-      const vp = p.getViewport({ scale: 150 / 72 });
-      const c = document.createElement('canvas');
-      c.width = vp.width;
-      c.height = vp.height;
-      const g = c.getContext('2d');
-      g.fillStyle = '#fff';
-      g.fillRect(0, 0, c.width, c.height);
-      await p.render({ canvasContext: g, viewport: vp }).promise;
-      area.append(el('img', { src: c.toDataURL('image/jpeg', 0.92) }));
-    }
-    busy(false);
-    await new Promise((r) => setTimeout(r, 200));
-    window.print();
+    ({ bytes } = await buildPdf(state.doc));
   } catch (e) {
     busy(false);
-    toast('Could not print: ' + e.message, { error: true });
+    return toast('Could not print: ' + (e.message || e), { error: true });
   }
+  await printPdfBytes(bytes);
+}
+
+/** The Print button at the top (v9.5): prints the open document, or the open email in Mail. */
+function printCurrent() {
+  if (document.body.classList.contains('app-mail')) return mail.printSelected();
+  return printDoc();
 }
 
 function updateTitle() {
@@ -1255,7 +1244,7 @@ function shortcutsDialog() {
     ['Ctrl+F', 'Find'], ['Ctrl+J', 'Show/hide side panel (Claude)'], ['Ctrl + mouse wheel', 'Zoom'], ['Ctrl+0', 'Actual size'],
     ['V', 'Select'], ['T', 'Add text'], ['E', 'Edit existing text'], ['H', 'Highlight'], ['U', 'Underline'], ['D', 'Draw'],
     ['R', 'Rectangle'], ['A', 'Arrow'], ['L', 'Line'], ['W', 'Whiteout'], ['C', 'Comment'], ['G', 'Grab text from an area'],
-    ['Delete', 'Delete selected item'], ['Ctrl+D', 'Copy selected item below it'], ['Arrow keys', 'Nudge selected item (Shift = bigger steps)'], ['Esc', 'Back to Select'],
+    ['In Mail', 'Press ? for the mail keys (J/K, R, E, #, S…)'], ['Delete', 'Delete selected item'], ['Ctrl+D', 'Copy selected item below it'], ['Arrow keys', 'Nudge selected item (Shift = bigger steps)'], ['Esc', 'Back to Select'],
   ];
   dialog({
     title: 'Keyboard shortcuts',
@@ -1290,9 +1279,11 @@ function onKey(e) {
   if (ctrl && k === '2') return e.preventDefault(), setApp('mail');
   if (ctrl && k === ',') return e.preventDefault(), openSettings();
   if (ctrl && k === 'f' && !document.body.classList.contains('composing') && !document.querySelector('.modal-backdrop')) return e.preventDefault(), openFind();
-  if (document.body.classList.contains('app-mail') && e.key === 'Delete' && !ctrl && !typingInField(e) && !document.body.classList.contains('composing') && !document.querySelector('.modal-backdrop')) {
-    if (mail.deleteSelected()) e.preventDefault();
-    return;
+  if (document.body.classList.contains('app-mail') && !document.body.classList.contains('composing') && !document.querySelector('.modal-backdrop')) {
+    if (ctrl && k === 'p') return e.preventDefault(), mail.printSelected();
+    // Gmail-style keys (v9.5): j/k, r, a, f, e, #, s, Shift+U, !, c, x, Delete. Ctrl+/ lists them.
+    if (ctrl && k === '/') return e.preventDefault(), mail.shortcutsHelp();
+    if (!typingInField(e) && mail.handleKey(e)) return e.preventDefault();
   }
   if (document.body.classList.contains('app-mail') || document.body.classList.contains('composing') || document.querySelector('.modal-backdrop')) return;
   if (ctrl && k === 'o') return e.preventDefault(), openDialog();
@@ -1448,6 +1439,7 @@ async function main() {
   on('structure', () => textCache.clear());
 
   $('#btnSave').addEventListener('click', () => save(false));
+  $('#btnPrint').addEventListener('click', printCurrent);
   $('#btnSettings').addEventListener('click', () => openSettings());
   $$('#appSwitch button').forEach((b) => b.addEventListener('click', () => setApp(b.dataset.app)));
   window.addEventListener('pam:settings', (e) => openSettings(e.detail || 'look'));

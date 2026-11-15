@@ -352,7 +352,8 @@ export const mail = {
     }),
   deleteDraft: (accountId, uid) => mailCall('mailDeleteDraft', { accountId, uid }),
   /**
-   * Changes emails (v9.3). change: { addLabels, removeLabels, archive, toInbox, read, starred, trash }.
+   * Changes emails (v9.3). change: { addLabels, removeLabels, archive, toInbox, read, starred, trash, spam, deleteForever }.
+   * spam (v9.5) moves to Spam (trashUids = its IDs there); deleteForever (v9.5) only works in Trash or Spam.
    * mailbox defaults to All Mail ("\\All"). Returns { accountId, mailbox, uids, count, trashMailbox, trashUids }.
    */
   modify: (accountId, uids, change, mailbox = '\\All') => mailCall('mailModify', { accountId, uids, change, mailbox }),
