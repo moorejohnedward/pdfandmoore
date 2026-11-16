@@ -2,6 +2,11 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.6.2 — Monday, November 16, 2026
+**Sign lives in one place**
+- The bold **Sign** button at the top of the window is now the only Sign button (plus Ctrl+Shift+G). Removed the extra ones: Home › Sign, the Sign a document start-screen tile, Edit › Signature, Protect › Quick sign, and the Insert › Signature… and Form › Sign this document… menu items.
+- Unchanged: Forms › **Sign here** (adds an empty signature box for someone else to fill in) and Protect › **Sign with ID** (certificate signing). Those are different tools.
+
 ## v9.6.1 — Monday, November 16, 2026
 **Sign is up front**
 - **Sign** is now the first button in the top bar, in its own bold coral-to-pink color, ahead of Ask Claude, Print and Save.

@@ -445,7 +445,6 @@ function menus() {
     Insert: [
       ['title', 'Text box', () => setTool('text'), 'T', needDoc],
       ['image', 'Image…', insertImage, '', needDoc],
-      ['signature', 'Signature…', startSigning, '', needDoc],
       ['add_comment', 'Comment', () => setTool('note'), 'C', needDoc],
       ['branding_watermark', 'My logo', () => runQuickCommand('Add my logo at the top left'), '', needDoc],
       ['wallpaper', 'Change my logo…', () => newdocui.chooseLogo(), ''],
@@ -508,7 +507,6 @@ function menus() {
       ['calendar_month', 'Date', () => fieldTool('date'), '', needDoc],
       ['signature', 'Signature field', () => fieldTool('signature'), '', needDoc],
       ['-'],
-      ['draw', 'Sign this document…', startSigning, '', needDoc],
       ['assignment', 'Fill the form with Claude…', () => emitQuickFill(), '', needDoc],
       ['ink_eraser', 'Clear all entries', clearFormValues, '', needDoc],
     ],
@@ -718,7 +716,6 @@ function ribbonContent(tab) {
   switch (tab) {
     case 'home':
       return [
-        group('Sign', (() => { const b = rb('signature', 'Sign', signNow, { needsDoc: false, title: 'Sign this document: draw, type, use a picture, or sign on your phone (Ctrl+Shift+G)' }); b.classList.add('rb-sign'); return b; })()),
         group('File', rb('folder_open', 'Open', openDialog, { needsDoc: false }), rb('save', 'Save', () => save(false)), rb('print', 'Print', printDoc), rb('forward_to_inbox', 'Email it', emailDoc, { title: 'Send this PDF as an email attachment' })),
         group('Undo', rb('undo', 'Undo', () => undo()), rb('redo', 'Redo', () => redo())),
         group('Pointer', rb('arrow_selector_tool', 'Select', null, { tool: 'select', title: 'Select and move things (V)' }), rb('pan_tool', 'Hand', null, { tool: 'hand', title: 'Drag to scroll (hold Space)' })),
@@ -729,7 +726,7 @@ function ribbonContent(tab) {
     case 'edit':
       return [
         group('Text', rb('title', 'Add text', null, { tool: 'text', title: 'Click on the page and type (T)' }), rb('edit_note', 'Change text', null, { tool: 'edittext', title: 'Click words already on the page to change them (E)' }), rb('format_paint', 'White out', null, { tool: 'whiteout', title: 'Drag over something to cover it (W)' }), rb('height', 'Move lines', null, { tool: 'lines', title: 'Grab any line on the page, including table borders and underlines, and drag it (Shift = move freely)' })),
-        group('Insert', rb('add_photo_alternate', 'Picture', insertImage), rb('branding_watermark', 'My logo', () => runQuickCommand('Add my logo at the top left'), { title: 'Add your saved logo (pick it the first time)' }), rb('signature', 'Signature', startSigning), rb('add_comment', 'Comment', null, { tool: 'note', title: 'Click to add a sticky note (C)' })),
+        group('Insert', rb('add_photo_alternate', 'Picture', insertImage), rb('branding_watermark', 'My logo', () => runQuickCommand('Add my logo at the top left'), { title: 'Add your saved logo (pick it the first time)' }), rb('add_comment', 'Comment', null, { tool: 'note', title: 'Click to add a sticky note (C)' })),
         group('Text style', el('div', { class: 'rstack' }, el('div', { class: 'rrow' }, font, size, rb('format_bold', 'Bold', () => { state.props.bold = !state.props.bold; updateSelectedAnnot({ bold: state.props.bold }); }, { big: false })), swatchRow(SWATCHES, state.props.color, colorPick, 'Text color'))),
       ];
     case 'draw':
@@ -769,8 +766,7 @@ function ribbonContent(tab) {
         ),
         group(
           'Digital signature',
-          rb('verified', 'Sign with ID', protect.signWithDigitalId, { title: 'Sign with a digital ID (certificate). Shows who signed and that nothing changed.' }),
-          rb('signature', 'Quick sign', startSigning, { title: 'Place your drawn or typed signature (Fill & Sign)' })
+          rb('verified', 'Sign with ID', protect.signWithDigitalId, { title: 'Sign with a digital ID (certificate). Shows who signed and that nothing changed.' })
         ),
         group('Privacy', rb('cleaning_services', 'Remove hidden info', protect.removeHiddenInfoDialog, { title: 'Remove author, title, keywords, attachments and scripts when saving' })),
       ];
@@ -1217,7 +1213,6 @@ async function renderStart() {
       'div',
       { class: 'start-tiles' },
       tile('folder_open', '#2bb3d9', 'Open a file', 'PDF, Word, Excel, images, and more', openDialog),
-      tile('signature', '#ff7a59', 'Sign a document', 'Pick a file and sign it, even with your phone stylus', signNow),
       tile('mail', '#ff5fa2', 'Check email', 'Every account and business address in one inbox', () => setApp('mail')),
       tile('note_add', '#188038', 'Blank PDF', 'Start from an empty page', newBlank),
       tile('merge', '#9334e6', 'Combine files', 'Merge several files into one PDF', combineDialog),
