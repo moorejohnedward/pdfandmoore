@@ -2,6 +2,13 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.6.1 — Monday, November 16, 2026
+**Sign is up front**
+- **Sign** is now the first button in the top bar, in its own bold coral-to-pink color, ahead of Ask Claude, Print and Save.
+- **Sign** is also the first button on the Home ribbon, and there's a **Sign a document** tile on the start screen, right after Open a file.
+- With no document open, Sign asks you to pick the file, then goes straight to the signature window.
+- Shortcut: **Ctrl+Shift+G**.
+
 ## v9.6.0 — Monday, November 16, 2026
 **A Sign button, and sign on your phone with your stylus**
 - **Sign button at the top of the window** (next to Print) whenever a document is open. It opens the signature window; pick a signature, then click where it goes on the page. It's a normal picture after that: drag it, resize it from the corner, or delete it.

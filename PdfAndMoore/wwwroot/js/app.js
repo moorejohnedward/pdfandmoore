@@ -146,6 +146,16 @@ async function openFiles(files, { askDiscard = true, asPdf = false } = {}) {
   }
 }
 
+/** The Sign button (v9.6.1): sign the open document, or pick one first and go straight to signing. */
+async function signNow() {
+  if (!state.doc) {
+    toast('Pick the document to sign.');
+    await openDialog();
+    if (!state.doc) return;
+  }
+  startSigning();
+}
+
 async function openDialog() {
   const files = await host.openFiles({ multiple: true });
   if (files.length) await openFiles(files);
@@ -708,6 +718,7 @@ function ribbonContent(tab) {
   switch (tab) {
     case 'home':
       return [
+        group('Sign', (() => { const b = rb('signature', 'Sign', signNow, { needsDoc: false, title: 'Sign this document: draw, type, use a picture, or sign on your phone (Ctrl+Shift+G)' }); b.classList.add('rb-sign'); return b; })()),
         group('File', rb('folder_open', 'Open', openDialog, { needsDoc: false }), rb('save', 'Save', () => save(false)), rb('print', 'Print', printDoc), rb('forward_to_inbox', 'Email it', emailDoc, { title: 'Send this PDF as an email attachment' })),
         group('Undo', rb('undo', 'Undo', () => undo()), rb('redo', 'Redo', () => redo())),
         group('Pointer', rb('arrow_selector_tool', 'Select', null, { tool: 'select', title: 'Select and move things (V)' }), rb('pan_tool', 'Hand', null, { tool: 'hand', title: 'Drag to scroll (hold Space)' })),
@@ -1206,6 +1217,7 @@ async function renderStart() {
       'div',
       { class: 'start-tiles' },
       tile('folder_open', '#2bb3d9', 'Open a file', 'PDF, Word, Excel, images, and more', openDialog),
+      tile('signature', '#ff7a59', 'Sign a document', 'Pick a file and sign it, even with your phone stylus', signNow),
       tile('mail', '#ff5fa2', 'Check email', 'Every account and business address in one inbox', () => setApp('mail')),
       tile('note_add', '#188038', 'Blank PDF', 'Start from an empty page', newBlank),
       tile('merge', '#9334e6', 'Combine files', 'Merge several files into one PDF', combineDialog),
@@ -1240,7 +1252,7 @@ async function renderStart() {
 function shortcutsDialog() {
   const rows = [
     ['Ctrl+1 / Ctrl+2', 'Documents / Mail'], ['Ctrl+,', 'Settings'], ['Ctrl+Enter', 'Send the email you are writing'],
-    ['Ctrl+O', 'Open'], ['Ctrl+S', 'Save'], ['Ctrl+Shift+S', 'Save as'], ['Ctrl+P', 'Print'], ['Ctrl+Z / Ctrl+Y', 'Undo / Redo'],
+    ['Ctrl+O', 'Open'], ['Ctrl+S', 'Save'], ['Ctrl+Shift+S', 'Save as'], ['Ctrl+P', 'Print'], ['Ctrl+Shift+G', 'Sign'], ['Ctrl+Z / Ctrl+Y', 'Undo / Redo'],
     ['Ctrl+F', 'Find'], ['Ctrl+J', 'Show/hide side panel (Claude)'], ['Ctrl + mouse wheel', 'Zoom'], ['Ctrl+0', 'Actual size'],
     ['V', 'Select'], ['T', 'Add text'], ['E', 'Edit existing text'], ['H', 'Highlight'], ['U', 'Underline'], ['D', 'Draw'],
     ['R', 'Rectangle'], ['A', 'Arrow'], ['L', 'Line'], ['W', 'Whiteout'], ['C', 'Comment'], ['G', 'Grab text from an area'],
@@ -1289,6 +1301,7 @@ function onKey(e) {
   if (ctrl && k === 'o') return e.preventDefault(), openDialog();
   if (ctrl && k === 's') return e.preventDefault(), save(e.shiftKey);
   if (ctrl && k === 'p') return e.preventDefault(), printDoc();
+  if (ctrl && e.shiftKey && k === 'g') return e.preventDefault(), signNow();
   if (ctrl && k === 'j') return e.preventDefault(), togglePanel();
   if (ctrl && k === '/') return e.preventDefault(), shortcutsDialog();
   if (ctrl && (k === '=' || k === '+')) return e.preventDefault(), setZoom(state.zoom * 1.2);
@@ -1440,7 +1453,7 @@ async function main() {
 
   $('#btnSave').addEventListener('click', () => save(false));
   $('#btnPrint').addEventListener('click', printCurrent);
-  $('#btnSign').addEventListener('click', () => (state.doc ? startSigning() : toast('Open a document first, then press Sign.')));
+  $('#btnSign').addEventListener('click', signNow);
   $('#btnSettings').addEventListener('click', () => openSettings());
   $$('#appSwitch button').forEach((b) => b.addEventListener('click', () => setApp(b.dataset.app)));
   window.addEventListener('pam:settings', (e) => openSettings(e.detail || 'look'));
