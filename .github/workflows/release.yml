@@ -22,7 +22,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Read version and see if it's already released
         id: ver
@@ -41,7 +41,7 @@ jobs:
           }
           exit 0
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         if: steps.ver.outputs.skip == 'false'
         with:
           dotnet-version: '8.0.x'
