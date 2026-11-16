@@ -20,12 +20,12 @@
 
   <ItemGroup>
     <!-- Microsoft Edge WebView2: hosts the editor UI (PDF rendering, OCR, Claude panel). -->
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2792.45" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
     <!-- Encrypts your Claude API key for your Windows user account. -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.0" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />
     <!-- MailKit (MIT): reads and sends email for the Mail tab (IMAP + SMTP). -->
-    <PackageReference Include="MailKit" Version="4.18.1" />
+    <PackageReference Include="MailKit" Version="4.18.2" />
   </ItemGroup>
 
   <ItemGroup>
