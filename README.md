@@ -173,7 +173,7 @@ and posts back `{ type: "reply", id, ok, result }`. Claude replies stream back a
 `{ type: "stream", id, text }` messages while they are being written.
 
 **Libraries** (included in `wwwroot/lib`, all free/open source): PDF.js (Mozilla), pdf-lib (and the @cantoo/pdf-lib fork for password locking),
-Tesseract.js (OCR), UTIF + pako (TIFF), heic2any (iPhone photos), Mammoth (Word), SheetJS (Excel), docx, JSZip, WebLLM (on-device AI), Material Symbols icons.
+Tesseract.js (OCR), UTIF + pako (TIFF), heic2any (iPhone photos), Mammoth (Word), SheetJS (Excel), docx, JSZip, WebLLM (on-device AI), qrcode-generator (QR codes for signing on your phone), Material Symbols icons.
 Email: MailKit and MimeKit (MIT, NuGet package).
 
 See **CHANGELOG.md** for what changed in each version.

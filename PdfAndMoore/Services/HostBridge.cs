@@ -27,6 +27,7 @@ public sealed class HostBridge
     private readonly ClaudeClient _claude = new();
     private readonly MailSettingsStore _mailStore = new();
     private readonly MailService _mail = new();
+    private readonly PhoneSignService _phoneSign = new();
 
     private const string OpenFilter =
         "All supported files|*.pdf;*.docx;*.doc;*.docm;*.dotx;*.dot;*.xlsx;*.xlsm;*.xls;*.xlsb;*.csv;*.tsv;*.ods;*.odp;*.pptx;*.ppt;*.pptm;*.ppsx;*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;*.tif;*.tiff;*.heic;*.heif;*.avif;*.txt;*.md;*.html;*.htm;*.rtf;*.odt;*.json;*.xml|" +
@@ -43,7 +44,13 @@ public sealed class HostBridge
         _window = window;
         _web = web;
         _htmlToPdf = htmlToPdf;
+        // Sign on your phone (v9.6): the phone talks to a background thread; the page is told on the UI thread.
+        _phoneSign.PhoneConnected += () => _window.Dispatcher.BeginInvoke(() => SendEvent("phoneSignConnected", null));
+        _phoneSign.SignatureReceived += dataUrl => _window.Dispatcher.BeginInvoke(() => SendEvent("phoneSignature", new { dataUrl }));
     }
+
+    /// <summary>Stops anything still listening on the network (called when the window closes).</summary>
+    public void Shutdown() => _phoneSign.Stop();
 
     /// <summary>Send an event the editor did not ask for (e.g. "open this file").</summary>
     public void SendEvent(string name, object? data)
@@ -100,6 +107,14 @@ public sealed class HostBridge
                     Str(args, "path"),
                     Bool(args, "saveAs"),
                     Str(args, "base64") ?? "");
+
+            // ---- Sign on your phone (v9.6) ----
+            case "phoneSignStart":
+                return _phoneSign.Start();
+
+            case "phoneSignStop":
+                _phoneSign.Stop();
+                return true;
 
             case "htmlToPdf":
             {

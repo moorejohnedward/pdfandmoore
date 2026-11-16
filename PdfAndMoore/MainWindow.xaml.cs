@@ -32,6 +32,7 @@ public partial class MainWindow : Window
         ApplyTheme(UiPrefs.Load().Theme);
         Loaded += async (_, _) => await InitializeEditorAsync();
         Closing += OnClosing;
+        Closed += (_, _) => _bridge?.Shutdown(); // stop the phone-signing link, if one is open
     }
 
     /// <summary>Starts WebView2, maps the editor's files to a private address, and loads it.</summary>

@@ -1259,7 +1259,7 @@ function aboutDialog() {
       'div',
       {},
       el('p', {}, 'A PDF editor, Word/Excel/PowerPoint editors and email in one app, with Claude as your assistant.'),
-      el('p', { class: 'muted' }, 'Built with PDF.js (Mozilla), pdf-lib, Tesseract OCR, Mammoth, SheetJS and docx. Word editor: SuperDoc (AGPL-3.0). Spreadsheet editor: FortuneSheet and FortuneExcel (MIT). Slide editor: pptxtojson and PptxGenJS (MIT). Email: MailKit and MimeKit (MIT). Windows app: C# / WPF with Microsoft Edge WebView2.')
+      el('p', { class: 'muted' }, 'Built with PDF.js (Mozilla), pdf-lib, Tesseract OCR, Mammoth, SheetJS and docx. Word editor: SuperDoc (AGPL-3.0). Spreadsheet editor: FortuneSheet and FortuneExcel (MIT). Slide editor: pptxtojson and PptxGenJS (MIT). Email: MailKit and MimeKit (MIT). QR codes: qrcode-generator by Kazuhiko Arase (MIT). Windows app: C# / WPF with Microsoft Edge WebView2.')
     ),
   });
 }
@@ -1440,6 +1440,7 @@ async function main() {
 
   $('#btnSave').addEventListener('click', () => save(false));
   $('#btnPrint').addEventListener('click', printCurrent);
+  $('#btnSign').addEventListener('click', () => (state.doc ? startSigning() : toast('Open a document first, then press Sign.')));
   $('#btnSettings').addEventListener('click', () => openSettings());
   $$('#appSwitch button').forEach((b) => b.addEventListener('click', () => setApp(b.dataset.app)));
   window.addEventListener('pam:settings', (e) => openSettings(e.detail || 'look'));

@@ -2,6 +2,19 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.6.0 — Monday, November 16, 2026
+**A Sign button, and sign on your phone with your stylus**
+- **Sign button at the top of the window** (next to Print) whenever a document is open. It opens the signature window; pick a signature, then click where it goes on the page. It's a normal picture after that: drag it, resize it from the corner, or delete it.
+- **Sign on my phone** tab in the signature window: it shows a QR code. Point your phone's camera at it, tap the link, and a full-screen white signing page opens on the phone. Sign above the line with your stylus (or finger) and tap **Done**. The signature shows up on the PC a second later; press **Use signature**.
+  - Stylus pressure makes the line thicker and thinner like real ink, and once the pen touches the screen your palm resting on the glass is ignored. **Undo**, **Clear**, and dark-blue or black ink. Turn the phone sideways for more room.
+  - Works when the phone is on the same Wi-Fi as the PC, or over **Tailscale** from anywhere (the window lists both addresses). Nothing goes through the internet or any outside service.
+  - The link works once, for 15 minutes, and only while the signature window is open. The first time, Windows may ask to let PDF and Moore use the network: tick **Private networks** and press **Allow**.
+- **From a picture** (was Upload): a photo of your signature on paper, or one drawn in any phone app, is cleaned up automatically. The paper and shadows are removed, the ink is kept and darkened a little, and it's cropped tight. Untick "Remove the paper background" to keep it as it is.
+- **Use as signature** on picture attachments in Mail: draw your signature on the phone, email it to yourself, then save it as your signature with one click.
+- **Draw here** now uses pen pressure too, when you sign with a pen on a touchscreen PC.
+- The signature window remembers which way you signed last time and opens there; **Remember this signature** keeps it for **Use saved signature** next time.
+- New code: `Services/PhoneSignService.cs` (a one-time, token-protected web server that runs only while the window is open), `Services/PhonePage.cs` (the phone's signing page), `phoneSign` in host.js, `cleanSignatureImage` / `useImageAsSignature` in forms.js. New library: qrcode-generator 1.4.4 by Kazuhiko Arase (MIT), `wwwroot/lib/qrcode.js`.
+
 ## v9.5.2 — Sunday, November 15, 2026
 **Scans from the scanner show up in Mail**
 - **Fixed:** an email the scanner sent to john@divemoore.com never appeared. When the scanner signs in as you and emails you ("scan to email"), the message is from you and to you, and Gmail files mail you send to yourself under **Sent only, never the Inbox**. Mail only read the Inbox, so the scan was invisible.

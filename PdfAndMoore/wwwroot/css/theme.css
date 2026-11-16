@@ -177,7 +177,7 @@ html[data-size='xl'] :is(.topbar, .ribbon-wrap, .command-wrap, .sidepanel, .star
 .app-switch button.on .badge { background: rgba(255, 255, 255, 0.92); color: #a23b1e; }
 
 /* In Mail mode the document chrome steps aside */
-body.app-mail :is(.ribbon-wrap, .command-wrap, .workspace, .page-counter, .context-bar, .sel-menu, #menubar, .save-btn, .save-state, #btnClaudeTop, .title-block) { display: none !important; }
+body.app-mail :is(.ribbon-wrap, .command-wrap, .workspace, .page-counter, .context-bar, .sel-menu, #menubar, .save-btn, .sign-btn, .save-state, #btnClaudeTop, .title-block) { display: none !important; }
 body.app-mail #docTitle { pointer-events: none; }
 body:not(.app-mail) .mail-view { display: none; }
 body.app-mail .top-actions { margin-left: auto; }

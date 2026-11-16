@@ -4,6 +4,7 @@ import { state, emit, on, checkpoint, changed, findAnnot, findPage } from './sta
 import { getPageTextItems, renderPageToCanvas, totalRotation, rightVec, downVec } from './doc.js';
 import { el, icon, $, uid, toast, dialog, busy, loadImage } from './util.js';
 import { recognizeCanvas } from './ocr.js';
+import * as host from './host.js';
 import { setTool, getView, scrollToPage, placeImage } from './viewer.js';
 
 export const FIELD_KINDS = {
@@ -861,11 +862,16 @@ export function savedSignature() {
   }
 }
 
-/** Ask for a signature (draw / type / upload). Resolves with a PNG data URL, or null. */
+/** Ask for a signature (draw / phone / type / picture). Resolves with a PNG data URL, or null. */
 export async function signatureDialog({ allowSaved = true } = {}) {
   const saved = allowSaved ? savedSignature() : null;
-  const tabs = ['Draw', 'Type', 'Upload'];
+  const tabs = ['Draw', 'Phone', 'Type', 'Picture'];
+  const TAB_LABEL = { Draw: 'Draw here', Phone: 'Sign on my phone', Type: 'Type', Picture: 'From a picture' };
   let mode = 'Draw';
+  try {
+    const last = localStorage.getItem(SIG_TAB_KEY);
+    if (tabs.includes(last)) mode = last;
+  } catch {}
   const pad = el('canvas', { class: 'sig-pad', width: 560, height: 180 });
   const ctx = pad.getContext('2d');
   ctx.lineWidth = 2.6;
@@ -882,13 +888,17 @@ export async function signatureDialog({ allowSaved = true } = {}) {
     drawing = true;
     drew = true;
     pad.setPointerCapture(e.pointerId);
+    ctx.lineWidth = e.pointerType === 'pen' && e.pressure > 0 ? 1.4 + e.pressure * 3 : 2.6;
     ctx.beginPath();
     ctx.moveTo(...pos(e));
   });
   pad.addEventListener('pointermove', (e) => {
     if (!drawing) return;
+    if (e.pointerType === 'pen' && e.pressure > 0) ctx.lineWidth = 1.4 + e.pressure * 3;
     ctx.lineTo(...pos(e));
     ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(...pos(e));
   });
   pad.addEventListener('pointerup', () => (drawing = false));
   const typed = el('input', { class: 'field sig-typed', placeholder: 'Type your name' });
@@ -905,44 +915,117 @@ export async function signatureDialog({ allowSaved = true } = {}) {
   typed.addEventListener('input', updatePreview);
   fontSel.addEventListener('change', updatePreview);
   updatePreview();
-  let uploaded = null;
+
+  // ---- From a picture: a photo of your signature on paper, or one drawn in any phone app (v9.6 cleans it up) ----
+  let uploadedImg = null;
+  let pictureSig = null;
   const fileIn = el('input', { type: 'file', accept: 'image/*' });
-  const upPreview = el('img', { class: 'sig-upload-preview' });
+  const cleanBox = el('input', { type: 'checkbox', checked: true });
+  const upPreview = el('img', { class: 'sig-upload-preview sig-checker', alt: '' });
+  const showPicture = async () => {
+    if (!uploadedImg) return;
+    pictureSig = await cleanSignatureImage(uploadedImg, { removeBackground: cleanBox.checked });
+    upPreview.src = pictureSig;
+  };
   fileIn.addEventListener('change', () => {
     const f = fileIn.files[0];
     if (!f) return;
     const r = new FileReader();
-    r.onload = () => {
-      uploaded = r.result;
-      upPreview.src = uploaded;
+    r.onload = async () => {
+      uploadedImg = await loadImage(r.result);
+      showPicture();
     };
     r.readAsDataURL(f);
   });
+  cleanBox.addEventListener('change', showPicture);
+
+  // ---- Sign on my phone (v9.6): QR code → phone page → signature comes back over Wi-Fi or Tailscale ----
+  let phoneSig = null;
+  let phoneRunning = false;
+  const qrImg = el('img', { class: 'sig-qr', alt: 'QR code to open the signing page on your phone' });
+  const qrUrl = el('div', { class: 'sig-qr-url' });
+  const phoneStatus = el('div', { class: 'sig-phone-status' });
+  const phoneDone = el('img', { class: 'sig-phone-result sig-checker', alt: 'Your signature from the phone' });
+  const otherAddrs = el('div', { class: 'sig-addrs' });
+  const againBtn = el('button', { class: 'btn btn-tonal', onclick: () => startPhone() }, icon('qr_code_2'), 'New QR code');
+  const qrSide = el('div', { class: 'sig-qr-side' }, qrImg, qrUrl);
+  const status = (ic, text, cls = '') => phoneStatus.replaceChildren(el('span', { class: 'ms ' + cls }, ic), el('span', {}, text));
+  const showQr = (a) => {
+    const q = qrcode(0, 'M');
+    q.addData(a.url);
+    q.make();
+    qrImg.src = q.createDataURL(6, 3);
+    qrUrl.textContent = a.url.replace(/\/sign\/.*/, '/sign/…') + `  (${a.kind})`;
+  };
+  async function startPhone() {
+    hookPhoneEvents();
+    phoneSig = null;
+    phoneDone.classList.add('hidden');
+    qrSide.classList.remove('hidden');
+    otherAddrs.replaceChildren();
+    status('hourglass_top', 'Getting a link ready…');
+    phoneHandler = {
+      connected: () => !phoneSig && status('smartphone', 'Phone connected. Sign with your stylus, then tap Done on the phone.', 'ok'),
+      signature: (dataUrl) => {
+        if (!dataUrl) return;
+        phoneSig = dataUrl;
+        phoneDone.src = dataUrl;
+        phoneDone.classList.remove('hidden');
+        qrSide.classList.add('hidden');
+        status('check_circle', 'Got your signature. Press Use signature to place it.', 'ok');
+        document.querySelector('.modal .modal-buttons .btn-primary')?.focus();
+      },
+    };
+    try {
+      const res = await host.phoneSign.start();
+      phoneRunning = true;
+      const list = res?.addresses || [];
+      if (!list.length) return status('wifi_off', "This PC isn't on a network your phone can reach. Connect to Wi-Fi or Tailscale, then press New QR code.", 'warn');
+      showQr(list[0]);
+      status('qr_code_scanner', 'Scan this with your phone camera. The phone must be on the same Wi-Fi as this PC, or on Tailscale.');
+      if (list.length > 1)
+        otherAddrs.replaceChildren(
+          el('span', {}, "Phone can't open it? Try:"),
+          ...list.map((a) => el('button', { class: 'btn btn-text small', onclick: () => showQr(a) }, `${a.kind} ${a.ip}`))
+        );
+    } catch (e) {
+      status('error', e.message || String(e), 'warn');
+    }
+  }
+
   const remember = el('input', { type: 'checkbox', checked: true });
   const panels = {
     Draw: el('div', {}, pad, el('button', { class: 'btn btn-text', onclick: () => (ctx.clearRect(0, 0, pad.width, pad.height), (drew = false)) }, 'Clear')),
+    Phone: el(
+      'div',
+      { class: 'sig-phone' },
+      el('div', { class: 'sig-phone-row' },
+        qrSide,
+        phoneDone,
+        el('div', { class: 'sig-phone-help' },
+          phoneStatus,
+          el('ol', {},
+            el('li', {}, 'Open the camera on your phone and point it at the code.'),
+            el('li', {}, 'Tap the link. A white signing page opens.'),
+            el('li', {}, 'Sign above the line with your stylus (or finger), then tap ', el('b', {}, 'Done'), '.')),
+          el('p', { class: 'hint' }, 'The first time, Windows may ask to let PDF and Moore use the network: tick Private networks and press Allow. The link works once, only on your own network, for 15 minutes.'),
+          againBtn)),
+      otherAddrs
+    ),
     Type: el('div', { class: 'sig-type' }, typed, fontSel, preview),
-    Upload: el('div', {}, fileIn, upPreview),
+    Picture: el('div', { class: 'sig-picture' },
+      el('p', { class: 'hint' }, 'A photo of your signature on paper, or one you drew in a phone app and emailed to yourself.'),
+      fileIn,
+      el('label', { class: 'check-label' }, cleanBox, ' Remove the paper background'),
+      upPreview),
   };
-  const tabBar = el(
-    'div',
-    { class: 'tabs' },
-    tabs.map((t) =>
-      el(
-        'button',
-        {
-          class: 'tab' + (t === mode ? ' active' : ''),
-          onclick: (e) => {
-            mode = t;
-            tabBar.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b === e.currentTarget));
-            Object.entries(panels).forEach(([k, p]) => (p.style.display = k === t ? '' : 'none'));
-          },
-        },
-        t
-      )
-    )
-  );
-  Object.entries(panels).forEach(([k, p]) => (p.style.display = k === mode ? '' : 'none'));
+  const select = (t) => {
+    mode = t;
+    tabBar.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === t));
+    Object.entries(panels).forEach(([k, p]) => (p.style.display = k === t ? '' : 'none'));
+    if (t === 'Phone' && !phoneRunning) startPhone();
+  };
+  const tabBar = el('div', { class: 'tabs' }, tabs.map((t) => el('button', { class: 'tab', 'data-tab': t, onclick: () => select(t) }, TAB_LABEL[t])));
   const body = el(
     'div',
     { class: 'sig-dialog' },
@@ -955,12 +1038,13 @@ export async function signatureDialog({ allowSaved = true } = {}) {
   const resultP = dialog({
     title: 'Add your signature',
     body,
-    width: '620px',
+    width: '680px',
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'Use signature', value: 'ok', primary: true },
     ],
   });
+  select(mode);
   const savedBtn = body.querySelector('[data-use-saved]');
   if (savedBtn)
     savedBtn.addEventListener('click', () => {
@@ -968,12 +1052,23 @@ export async function signatureDialog({ allowSaved = true } = {}) {
       document.querySelector('.modal .btn-primary:last-child')?.click();
     });
   const r = await resultP;
+  phoneHandler = null;
+  if (phoneRunning) host.phoneSign.stop().catch(() => {});
   if (!r) return null;
   if (useSaved) return saved;
+  try {
+    localStorage.setItem(SIG_TAB_KEY, mode);
+  } catch {}
   let dataUrl = null;
   if (mode === 'Draw') {
     if (!drew) return null;
     dataUrl = trimCanvas(pad);
+  } else if (mode === 'Phone') {
+    if (!phoneSig) {
+      toast('No signature from the phone yet. Sign on the phone and tap Done first.');
+      return null;
+    }
+    dataUrl = phoneSig;
   } else if (mode === 'Type') {
     if (!typed.value.trim()) return null;
     const c = el('canvas', { width: 900, height: 220 });
@@ -983,19 +1078,90 @@ export async function signatureDialog({ allowSaved = true } = {}) {
     g.textBaseline = 'middle';
     g.fillText(typed.value, 20, 110);
     dataUrl = trimCanvas(c);
-  } else if (uploaded) {
-    // Normalise to PNG so it embeds cleanly.
-    const img = await loadImage(uploaded);
-    const c = el('canvas', { width: img.naturalWidth, height: img.naturalHeight });
-    c.getContext('2d').drawImage(img, 0, 0);
-    dataUrl = c.toDataURL('image/png');
+  } else {
+    dataUrl = pictureSig;
   }
-  if (dataUrl && remember.checked) {
-    try {
-      localStorage.setItem(SIG_KEY, dataUrl);
-    } catch {}
-  }
+  if (dataUrl && remember.checked) saveSignature(dataUrl);
   return dataUrl;
+}
+
+const SIG_TAB_KEY = 'pdfandmoore.signatureTab';
+let phoneHandler = null; // the open signature window's phone callbacks
+let phoneHooked = false;
+function hookPhoneEvents() {
+  if (phoneHooked) return;
+  phoneHooked = true;
+  host.onHostEvent('phoneSignConnected', () => phoneHandler?.connected());
+  host.onHostEvent('phoneSignature', (d) => phoneHandler?.signature(d?.dataUrl));
+}
+
+function saveSignature(dataUrl) {
+  try {
+    localStorage.setItem(SIG_KEY, dataUrl);
+  } catch {}
+}
+
+/**
+ * Turns a picture of a signature into a clean, see-through signature (v9.6): the paper (or white
+ * background) is removed, the ink is kept, and it's cropped tight. Pictures that are already see-through stay as they are.
+ */
+export async function cleanSignatureImage(img, { removeBackground = true } = {}) {
+  const max = 1800;
+  const k = Math.min(1, max / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+  const c = el('canvas', { width: Math.max(1, Math.round((img.naturalWidth || img.width) * k)), height: Math.max(1, Math.round((img.naturalHeight || img.height) * k)) });
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0, c.width, c.height);
+  const im = g.getImageData(0, 0, c.width, c.height);
+  const d = im.data;
+  const n = c.width * c.height;
+  let clear = 0;
+  for (let i = 3; i < d.length; i += 4) if (d[i] < 245) clear++;
+  if (removeBackground && clear < n * 0.02) {
+    // The paper is the brightest common tone: take a high percentile of brightness as "paper".
+    const hist = new Uint32Array(256);
+    const lum = new Uint8Array(n);
+    for (let p = 0, i = 0; p < n; p++, i += 4) {
+      const L = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000;
+      lum[p] = L;
+      hist[L | 0]++;
+    }
+    let acc = 0;
+    let paper = 255;
+    for (let v = 0; v < 256; v++) {
+      acc += hist[v];
+      if (acc >= n * 0.6) {
+        paper = v;
+        break;
+      }
+    }
+    const start = paper - 28; // anything this close to the paper is paper (shadows, grain)
+    const full = Math.max(40, paper * 0.5); // this much darker is solid ink
+    for (let p = 0, i = 0; p < n; p++, i += 4) {
+      const a = Math.max(0, Math.min(1, (start - lum[p]) / (full - 28)));
+      d[i + 3] = Math.round(a * 255);
+      // Deepen the ink a little so a pencil-grey photo still prints clearly.
+      d[i] = Math.round(d[i] * 0.7);
+      d[i + 1] = Math.round(d[i + 1] * 0.7);
+      d[i + 2] = Math.round(d[i + 2] * 0.75);
+    }
+    g.putImageData(im, 0, 0);
+  }
+  return trimCanvas(c);
+}
+
+/** Saves a picture (bytes) as your signature, cleaned up, for the next time you sign. Used by Mail attachments. */
+export async function useImageAsSignature(bytes, name = 'signature.png') {
+  const ext = (name.split('.').pop() || 'png').toLowerCase();
+  const mime = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp' }[ext] || 'image/png';
+  const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+  try {
+    const img = await loadImage(url);
+    const dataUrl = await cleanSignatureImage(img);
+    saveSignature(dataUrl);
+    return dataUrl;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function trimCanvas(c) {

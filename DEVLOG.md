@@ -116,3 +116,17 @@ Each entry records what was built, why, and the concepts behind it. CHANGELOG.md
 
 **Concepts:** HTML sanitizing and Content-Security-Policy, print pipelines (HTML → PDF → page images), IMAP MOVE and EXPUNGE, reversible operations, keyboard-driven UI, autocomplete ranking.
 
+## 2026-11-16: v9.6, a Sign button and signing on my phone
+
+**Problem:** Signing a PDF meant drawing with a mouse, which looks nothing like my real signature. My phone has a stylus, but there was no way to get a signature from the phone into the app.
+
+**Built**
+- **A tiny local web server inside the app** (`PhoneSignService.cs`), built on a raw TCP listener so it needs no admin rights or extra setup. It runs only while the signature window is open, answers exactly one path, and parses just enough HTTP (request line, headers, Content-Length) to serve one page and accept one upload.
+- **One-time links:** the QR code holds a random 128-bit token. The server compares it in constant time, refuses everything else, accepts one signature, then shuts the link. It also times out after 15 minutes and stops when the app closes.
+- **Finding the right address:** the app lists this PC's network addresses (home or shop Wi-Fi first, then Tailscale's 100.64.0.0/10 range) so the phone can reach it either on the same network or over the Tailscale VPN.
+- **The phone page:** HTML5 canvas with Pointer Events. It uses pen pressure for line width, coalesced events for smooth fast strokes, palm rejection (ignore touch once a pen is seen), quadratic smoothing, and a 3x export cropped to the ink.
+- **Cleaning a photo of a signature:** a brightness histogram finds the paper tone, then each pixel's transparency comes from how much darker than the paper it is. Shadows and paper grain vanish and the ink stays.
+- **Testing:** the server and phone page compiled on their own and driven by a phone-sized headless Chrome (sign, send, reuse refused, wrong link refused), plus the PC dialog with a fake host (QR code, connected, signature received, placed on the page, photo cleanup).
+
+**Concepts:** sockets and HTTP from scratch, capability URLs and one-time tokens, constant-time comparison, private address ranges and VPN overlays (Tailscale/WireGuard), Pointer Events and stylus pressure, image thresholding.
+

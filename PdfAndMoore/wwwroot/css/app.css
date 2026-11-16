@@ -648,3 +648,21 @@ body[data-tool='lines'] .interact-layer { cursor: grab; }
 .restore-mode input { margin-top: 3px; }
 .restore-mode b { display: block; font-size: 13.5px; }
 .restore-mode.on { border-color: var(--blue); background: var(--blue-soft); }
+
+/* v9.6: Sign button at the top, and signing on your phone */
+.sign-btn .ms { color: var(--coral); }
+.sig-checker { background-color: #fff; background-image: linear-gradient(45deg, #eef1f4 25%, transparent 25%), linear-gradient(-45deg, #eef1f4 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #eef1f4 75%), linear-gradient(-45deg, transparent 75%, #eef1f4 75%); background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0; border-radius: 8px; }
+.sig-picture .check-label { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; }
+.sig-phone-row { display: flex; gap: 18px; align-items: flex-start; }
+.sig-qr-side { flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.sig-qr { width: 210px; height: 210px; image-rendering: pixelated; background: #fff; border-radius: 10px; padding: 6px; }
+.sig-qr-url { font-size: 11.5px; color: var(--muted); max-width: 230px; text-align: center; word-break: break-all; }
+.sig-phone-result { flex: none; max-width: 300px; max-height: 160px; padding: 8px; }
+.sig-phone-help { flex: 1; min-width: 0; font-size: 14px; }
+.sig-phone-help ol { margin: 8px 0; padding-left: 20px; line-height: 1.5; }
+.sig-phone-help .hint { font-size: 12.5px; }
+.sig-phone-status { display: flex; gap: 8px; align-items: flex-start; font-weight: 600; font-size: 15px; }
+.sig-phone-status .ms { color: var(--ocean); }
+.sig-phone-status .ms.ok { color: var(--lime); }
+.sig-phone-status .ms.warn { color: var(--danger, #d93025); }
+.sig-addrs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 13px; color: var(--muted); margin-top: 8px; }

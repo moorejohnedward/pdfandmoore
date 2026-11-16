@@ -295,6 +295,13 @@ function mailCall(cmd, args) {
   if (!webview) return Promise.reject(new Error(NEEDS_APP_MAIL));
   return callHost(cmd, args);
 }
+/** Sign on your phone (v9.6): a one-time link the phone opens from a QR code. Events: phoneSignConnected, phoneSignature {dataUrl}. */
+export const phoneSign = {
+  /** Returns { port, addresses: [{ ip, kind, url }] }. */
+  start: () => (webview ? callHost('phoneSignStart') : Promise.reject(new Error('Signing on your phone works in the PDF and Moore Windows app.'))),
+  stop: () => (webview ? callHost('phoneSignStop') : Promise.resolve(true)),
+};
+
 export const mail = {
   getSettings: () => (webview ? callHost('mailGetSettings') : Promise.resolve(null)),
   saveSettings: (settings) => mailCall('mailSaveSettings', { json: JSON.stringify(settings) }),

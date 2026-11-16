@@ -4,6 +4,7 @@
 import * as host from './host.js';
 import { el, icon, $, toast, dialog, confirmDialog, promptDialog, extOf, debounce, busy } from './util.js';
 import { emailPage, emailPdf, printEmailPage, hasWebPictures } from './print.js';
+import { useImageAsSignature } from './forms.js';
 import { askOnce, mode as aiMode } from './claude.js';
 import { openAssistant as openAgent } from './mailagent.js';
 
@@ -1515,7 +1516,8 @@ function renderReader() {
             el('span', { class: 'mail-att-name', title: a.name }, a.name),
             el('small', {}, sizeText(a.size)),
             canOpenInApp(a.name) ? el('button', { class: 'btn btn-text small', onclick: () => openAttachment(m, a) }, 'Open') : '',
-            el('button', { class: 'btn btn-text small', onclick: () => saveAttachment(m, a) }, 'Save')
+            el('button', { class: 'btn btn-text small', onclick: () => saveAttachment(m, a) }, 'Save'),
+            isPicture(a.name) ? el('button', { class: 'btn btn-text small', title: 'Use this picture as your signature (the background is removed)', onclick: () => attachmentAsSignature(m, a) }, 'Use as signature') : ''
           )
         )
       )
@@ -1578,6 +1580,21 @@ async function openAttachment(m, a) {
     if (M.onOpenFile) await M.onOpenFile(file);
   } catch (e) {
     toast(e.message, { error: true });
+  }
+}
+const isPicture = (name) => ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(extOf(name));
+
+/** A signature you drew on your phone and emailed to yourself becomes your saved signature (v9.6). */
+async function attachmentAsSignature(m, a) {
+  try {
+    setStatus('Cleaning up the signature…', true);
+    const file = await host.mail.attachment(m.accountId, m.uid, a.index, m.mailbox || 'INBOX');
+    await useImageAsSignature(file.bytes, a.name);
+    setStatus('');
+    toast('Saved as your signature. In Documents, press Sign › Use saved signature.', { ms: 6000 });
+  } catch (e) {
+    setStatus('');
+    toast("Couldn't use that picture: " + (e.message || e), { error: true });
   }
 }
 async function saveAttachment(m, a) {
