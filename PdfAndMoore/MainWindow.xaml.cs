@@ -24,10 +24,13 @@ public partial class MainWindow : Window
     private bool _closeAfterSave;
     private bool _forceClose;
 
-    public MainWindow(string? startupFile = null, bool startupAsPdf = false)
+    private readonly string? _startupReadText; // a picture to read the words from (sent by KonaSnap, v9.8)
+
+    public MainWindow(string? startupFile = null, bool startupAsPdf = false, string? readTextFrom = null)
     {
         _startupFile = startupFile;
         _startupAsPdf = startupAsPdf;
+        _startupReadText = readTextFrom;
         InitializeComponent();
         ApplyTheme(UiPrefs.Load().Theme);
         Loaded += async (_, _) => await InitializeEditorAsync();
@@ -103,6 +106,7 @@ public partial class MainWindow : Window
             if (!_startupAsPdf && OfficeTypes.EditorFor(_startupFile) != null) OpenInEditor(_startupFile);
             else _bridge?.SendEvent(_startupAsPdf ? "openPathAsPdf" : "openPath", _startupFile);
         }
+        if (_startupReadText != null) _bridge?.SendEvent("readTextPath", _startupReadText);
     }
 
     private static bool _updateChecked;

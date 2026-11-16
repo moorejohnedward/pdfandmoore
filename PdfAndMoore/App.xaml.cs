@@ -29,6 +29,23 @@ public partial class App : Application
 
         UpdateService.CleanupAfterUpdate();
         FileAssociations.RefreshIfMoved();
+        AppLinks.Register();
+
+        // From KonaSnap (v9.8): "--new-from <file> [--as word|text]" opens a new, unsaved Word document or text file
+        // filled with that text; "--read-text <picture>" reads the words in a picture with the deep reader.
+        string? newFrom = ArgAfter(e.Args, "--new-from");
+        if (newFrom != null && File.Exists(newFrom))
+        {
+            string kind = ArgAfter(e.Args, "--as") is { } k && OfficeTypes.IsKind(k) ? k : "text";
+            new OfficeEditorWindow(null, kind, newFrom).Show();
+            return;
+        }
+        string? readText = ArgAfter(e.Args, "--read-text");
+        if (readText != null && File.Exists(readText))
+        {
+            new MainWindow(null, false, readText).Show();
+            return;
+        }
 
         string? fileToOpen = e.Args.FirstOrDefault(a => File.Exists(a));
         bool asPdf = e.Args.Any(a => a.Equals("--pdf", StringComparison.OrdinalIgnoreCase));
@@ -53,6 +70,12 @@ public partial class App : Application
 
         var window = new MainWindow(fileToOpen, asPdf);
         window.Show();
+    }
+
+    private static string? ArgAfter(string[] args, string name)
+    {
+        int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
+        return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
     }
 
     /// <summary>After "Restart now" in the update window, start the new version as this one closes.</summary>

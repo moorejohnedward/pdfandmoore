@@ -24,11 +24,13 @@ public partial class OfficeEditorWindow : Window
     private bool _closeAfterSave;
     private bool _forceClose;
     private readonly HashSet<string> _backedUp = new(StringComparer.OrdinalIgnoreCase);
+    private string? _seedPath; // v9.8: text from KonaSnap that a new, unsaved file starts with
 
-    /// <summary>Open a file (or pass path = null for a new blank one).</summary>
-    public OfficeEditorWindow(string? path, string kind)
+    /// <summary>Open a file (or pass path = null for a new blank one). seedPath: start a new file with this file's content.</summary>
+    public OfficeEditorWindow(string? path, string kind, string? seedPath = null)
     {
         _path = path;
+        _seedPath = seedPath;
         _kind = OfficeTypes.IsKind(kind) ? kind : "word";
         InitializeComponent();
         Title = (path != null ? Path.GetFileName(path) : "New " + OfficeTypes.Label(_kind)) + " - " + AppName;
@@ -126,6 +128,14 @@ public partial class OfficeEditorWindow : Window
         {
             case "ready":
             {
+                if (_path == null && _seedPath != null && File.Exists(_seedPath))
+                {
+                    // A new file that isn't saved anywhere yet: Save asks where to put it.
+                    byte[] seed = await ReadSharedAsync(_seedPath);
+                    string seedName = Path.GetFileName(_seedPath);
+                    _seedPath = null;
+                    return new { name = seedName, path = (string?)null, base64 = Convert.ToBase64String(seed), unsaved = true };
+                }
                 if (_path == null || !File.Exists(_path)) return new { name = (string?)null, path = (string?)null, base64 = (string?)null };
                 byte[] bytes = await ReadSharedAsync(_path);
                 return new { name = Path.GetFileName(_path), path = _path, base64 = Convert.ToBase64String(bytes) };

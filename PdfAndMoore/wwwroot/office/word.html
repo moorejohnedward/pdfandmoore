@@ -51,6 +51,16 @@
         return D.Packer.toBlob(doc);
       }
 
+      async function textToDocx(text) {
+        const D = window.docx;
+        const paras = text.replace(/\r\n/g, '\n').replace(/^\uFEFF/, '').split('\n').map((line) => new D.Paragraph({ children: [new D.TextRun(line)] }));
+        const doc = new D.Document({
+          styles: { default: { document: { run: { font: 'Calibri', size: 22 } } } },
+          sections: [{ properties: {}, children: paras.length ? paras : [new D.Paragraph('')] }],
+        });
+        return D.Packer.toBlob(doc);
+      }
+
       OfficeShell.start({
         kind: 'word',
         print: true,
@@ -60,6 +70,13 @@
           container.innerHTML = '<div class="word-wrap"></div>';
         },
         async load(bytes, name, ext) {
+          if (ext === 'txt') {
+            // v9.8: text from KonaSnap becomes a Word document, one paragraph per paragraph.
+            const blob = await textToDocx(new TextDecoder('utf-8').decode(bytes));
+            const docName = name.replace(/\.txt$/i, '.docx');
+            await open(new File([blob], docName, { type: blob.type }));
+            return { renamed: docName };
+          }
           await open(new File([bytes], name.replace(/\.(docm|dotx)$/i, '.docx'), { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
           if (ext !== 'docx') {
             return { notice: `This is a .${ext} file. Saving makes a .docx copy (macros and template settings aren't kept).` };

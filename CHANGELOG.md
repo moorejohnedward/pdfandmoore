@@ -2,6 +2,16 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.8.0 — Monday, November 16, 2026
+**Linked to KonaSnap**
+- KonaSnap 2.2 can now hand things to PDF and Moore:
+  - **Text it grabbed → a new Word document or text file.** It opens as a new, unsaved file with the text already in it; Save asks where to put it. Paragraphs come across as paragraphs.
+  - **A picture it couldn't read well → PDF and Moore's careful reader**, which straightens crooked or upside-down pictures and reads faded or unusual text, then shows the words to copy.
+  - **A capture → a PDF** in the PDF editor, ready to sign, fill in, combine or email.
+- PDF and Moore now lists itself with Windows each time it starts (the standard "App Paths" list for your account), so KonaSnap can find it wherever it's installed or built. Win+R › "PdfAndMoore" starts it too.
+- New start-up options (used by KonaSnap): `--new-from <file> --as word|text` and `--read-text <picture>`.
+- New code: `Services/AppLinks.cs`; the Word editor turns a .txt into a new document.
+
 ## v9.7.0 — Monday, November 16, 2026
 **Make a new file of any kind from the start screen, and paste into it**
 - **Create new** is now the first row on the start screen: **Word document**, **Spreadsheet**, **Presentation**, **Text file** and **Blank PDF**. Each one opens a fresh, empty file in its own window, ready to type or paste into. **Save** asks where to put it the first time.

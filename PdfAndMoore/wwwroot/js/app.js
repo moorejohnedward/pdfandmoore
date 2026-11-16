@@ -1529,6 +1529,15 @@ async function main() {
   // Messages from the Windows app (files opened from Explorer, "Open with", closing with unsaved changes).
   host.onHostEvent('openPath', (p) => openPath(p));
   host.onHostEvent('openPathAsPdf', (p) => openPath(p, { asPdf: true }));
+  // v9.8: KonaSnap sends a picture whose words it couldn't read well; the deep reader straightens and reads it.
+  host.onHostEvent('readTextPath', async (p) => {
+    try {
+      const f = await host.readPath(p);
+      await grabTextFromImageBytes(f.bytes, f.name);
+    } catch (e) {
+      toast("Couldn't read that picture: " + (e.message || e), { error: true });
+    }
+  });
   host.onHostEvent('updateAvailable', (d) => toast(`PDF and Moore ${d && d.version} is ready to install: Tools › Check for updates…`, { ms: 12000 }));
   host.onHostEvent('saveBeforeClose', async () => {
     const ok = await save(false);

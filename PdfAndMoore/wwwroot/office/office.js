@@ -208,6 +208,8 @@
         const result = await opts.load(b64ToBytes(file.base64), file.name, extOf(file.name), api);
         if (result && result.notice) notice(result.notice);
         if (result && result.renamed) { state.name = result.renamed; state.path = null; state.dirty = true; }
+        // v9.8: text sent from KonaSnap starts as a new file that isn't saved anywhere yet.
+        if (file.unsaved) { state.path = null; state.dirty = true; }
       } else {
         await opts.blank(api);
       }
