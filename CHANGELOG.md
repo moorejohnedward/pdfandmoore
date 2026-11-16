@@ -2,6 +2,19 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.7.0 — Monday, November 16, 2026
+**Make a new file of any kind from the start screen, and paste into it**
+- **Create new** is now the first row on the start screen: **Word document**, **Spreadsheet**, **Presentation**, **Text file** and **Blank PDF**. Each one opens a fresh, empty file in its own window, ready to type or paste into. **Save** asks where to put it the first time.
+- **Copy and paste works in all of them** (Ctrl+V, or right-click › Paste):
+  - **Word document:** pasted text keeps its bold, lists and tables, from web pages, emails, other documents or PDFs.
+  - **Spreadsheet:** a table copied from Excel, a web page or an email lands in the cells, one value per cell.
+  - **Presentation:** pasted pictures become a picture on the slide, and (new) pasted text becomes a new text box when you're not already typing in one.
+  - **Text file:** plain text exactly as copied. There's also a **Paste** button.
+- **New text file editor** (like Notepad, in the app's look) for .txt, notes, lists, .md, .json, .xml, .ini, .yaml and scripts (.bat, .cmd, .ps1). Paste, Copy all, Wrap lines, Fixed width, bigger and smaller text (remembered), **Date & time** (F5) in military time, and a status line with line, column, word and character counts. It saves exactly what you type: Windows line endings for new files, and an existing file keeps its own line endings and encoding. **Save as** can use any name and extension. **Print** and **Open as PDF** work too.
+- Text files you open (Open a file, drag and drop, or double-click) now open in the text editor so you can change them. To get one as PDF pages, press **Open as PDF** in its window.
+- File › **New text file** joins New document, New spreadsheet and New presentation.
+- New code: `wwwroot/office/text.html`; the "text" kind in `OfficeTypes.cs`; slide text paste in `office/slides.html`.
+
 ## v9.6.2 — Monday, November 16, 2026
 **Sign lives in one place**
 - The bold **Sign** button at the top of the window is now the only Sign button (plus Ctrl+Shift+G). Removed the extra ones: Home › Sign, the Sign a document start-screen tile, Edit › Signature, Protect › Quick sign, and the Insert › Signature… and Form › Sign this document… menu items.

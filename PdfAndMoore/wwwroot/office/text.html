@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Text file - PDF and Moore</title>
+  <script>
+    // Same theme and size as the main window (Dark by default).
+    (function () { var p = {}; try { p = JSON.parse(localStorage.getItem('pam.ui') || '{}'); } catch (e) {}
+      document.documentElement.dataset.theme = p.theme === 'light' ? 'light' : 'dark';
+      document.documentElement.dataset.size = p.textSize || 'large'; })();
+  </script>
+  <link rel="stylesheet" href="office.css" />
+</head>
+<body>
+  <!-- v9.7: plain text files (.txt, notes, .md, .json, .csv-free lists, scripts…): a Notepad that saves exactly what you type. -->
+  <script src="office.js"></script>
+  <script>
+    (function () {
+      const PREFS = 'pam.textEditor';
+      let prefs = { wrap: true, size: 16, mono: false };
+      try { prefs = { ...prefs, ...JSON.parse(localStorage.getItem(PREFS) || '{}') }; } catch (e) {}
+      const savePrefs = () => { try { localStorage.setItem(PREFS, JSON.stringify(prefs)); } catch (e) {} };
+
+      let area = null;
+      let status = null;
+      let crlf = true; // Windows line endings unless the file came with plain \n
+      let bom = false;
+
+      function apply() {
+        area.style.whiteSpace = prefs.wrap ? 'pre-wrap' : 'pre';
+        area.style.overflowX = prefs.wrap ? 'hidden' : 'auto';
+        area.wrap = prefs.wrap ? 'soft' : 'off';
+        area.style.fontSize = prefs.size + 'px';
+        area.style.fontFamily = prefs.mono ? 'Consolas, "Cascadia Mono", monospace' : '"Segoe UI", system-ui, sans-serif';
+        document.querySelector('[data-t="wrap"]').classList.toggle('on', prefs.wrap);
+        document.querySelector('[data-t="mono"]').classList.toggle('on', prefs.mono);
+      }
+      function count() {
+        const v = area.value;
+        const before = v.slice(0, area.selectionStart);
+        const line = before.split('\n').length;
+        const col = before.length - before.lastIndexOf('\n');
+        const words = (v.match(/\S+/g) || []).length;
+        status.textContent = `Line ${line}, column ${col}   ·   ${words.toLocaleString()} words   ·   ${v.length.toLocaleString()} characters   ·   ${crlf ? 'Windows (CRLF)' : 'Unix (LF)'}   ·   UTF-8`;
+      }
+
+      function decode(bytes) {
+        bom = false;
+        if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes.subarray(2));
+        if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes.subarray(2));
+        if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) { bom = true; bytes = bytes.subarray(3); }
+        try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+        catch (e) { return new TextDecoder('windows-1252').decode(bytes); } // older Notepad files
+      }
+
+      OfficeShell.start({
+        kind: 'text',
+        print: true,
+        saveExt: (orig) => orig || 'txt',
+        mount(container, api) {
+          const tb = (t, icon, label, title, fn) => {
+            const b = document.createElement('button');
+            b.className = 'tx-btn'; b.type = 'button'; b.title = title; b.dataset.t = t;
+            b.innerHTML = `<span class="ob-ic">${icon}</span><span>${label}</span>`;
+            b.addEventListener('mousedown', (e) => e.preventDefault());
+            b.addEventListener('click', fn);
+            return b;
+          };
+          const bar = document.createElement('div');
+          bar.className = 'tx-bar';
+          bar.append(
+            tb('paste', 'content_paste', 'Paste', 'Paste (Ctrl+V)', async () => {
+              try {
+                const t = await navigator.clipboard.readText();
+                area.focus();
+                document.execCommand('insertText', false, t);
+              } catch (e) { area.focus(); api.toast('Press Ctrl+V to paste.'); }
+            }),
+            tb('copy', 'content_copy', 'Copy all', 'Copy everything', async () => {
+              try { await navigator.clipboard.writeText(area.value); api.toast('Copied everything.'); } catch (e) { area.select(); document.execCommand('copy'); }
+            }),
+            tb('wrap', 'wrap_text', 'Wrap lines', 'Wrap long lines to the window', () => { prefs.wrap = !prefs.wrap; savePrefs(); apply(); }),
+            tb('mono', 'code', 'Fixed width', 'Fixed-width letters (good for lists that line up, code and logs)', () => { prefs.mono = !prefs.mono; savePrefs(); apply(); }),
+            tb('smaller', 'text_decrease', '', 'Smaller text (Ctrl+-)', () => { prefs.size = Math.max(10, prefs.size - 2); savePrefs(); apply(); }),
+            tb('bigger', 'text_increase', '', 'Bigger text (Ctrl+=)', () => { prefs.size = Math.min(40, prefs.size + 2); savePrefs(); apply(); }),
+            tb('time', 'schedule', 'Date & time', 'Insert today’s date and time (F5)', () => insertNow())
+          );
+          area = document.createElement('textarea');
+          area.className = 'tx-area';
+          area.spellcheck = true;
+          area.placeholder = 'Type or paste anything here.';
+          status = document.createElement('div');
+          status.className = 'tx-status';
+          container.append(bar, area, status);
+          area.addEventListener('input', () => { api.markDirty(); count(); });
+          ['keyup', 'click', 'select'].forEach((ev) => area.addEventListener(ev, count));
+          // Tab types a tab (like Notepad) instead of jumping out of the box.
+          area.addEventListener('keydown', (e) => {
+            if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
+            else if (e.key === 'F5') { e.preventDefault(); insertNow(); }
+          });
+          document.addEventListener('keydown', (e) => {
+            if (!(e.ctrlKey || e.metaKey)) return;
+            if (e.key === '=' || e.key === '+') { e.preventDefault(); prefs.size = Math.min(40, prefs.size + 2); savePrefs(); apply(); }
+            else if (e.key === '-') { e.preventDefault(); prefs.size = Math.max(10, prefs.size - 2); savePrefs(); apply(); }
+          });
+          apply();
+          count();
+          setTimeout(() => area.focus(), 50);
+        },
+        async load(bytes) {
+          const text = decode(bytes);
+          crlf = /\r\n/.test(text) || !/\n/.test(text);
+          area.value = text.replace(/\r\n/g, '\n');
+          area.setSelectionRange(0, 0);
+          count();
+          return null;
+        },
+        blank() { area.value = ''; crlf = true; count(); },
+        async save() {
+          let t = area.value;
+          if (crlf) t = t.replace(/\r?\n/g, '\r\n');
+          const body = new TextEncoder().encode(t);
+          if (!bom) return body;
+          const out = new Uint8Array(body.length + 3);
+          out.set([0xef, 0xbb, 0xbf]);
+          out.set(body, 3);
+          return out;
+        },
+        beforePrint(printArea) {
+          printArea.innerHTML = '';
+          const pre = document.createElement('pre');
+          pre.className = 'tx-print';
+          pre.style.fontFamily = area.style.fontFamily;
+          pre.textContent = area.value;
+          printArea.append(pre);
+        },
+      });
+
+      function insertNow() {
+        const d = new Date();
+        const p = (n) => String(n).padStart(2, '0');
+        const text = `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} ${p(d.getHours())}${p(d.getMinutes())}`;
+        area.focus();
+        document.execCommand('insertText', false, text);
+      }
+    })();
+  </script>
+</body>
+</html>

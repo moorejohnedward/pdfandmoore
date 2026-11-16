@@ -28,6 +28,20 @@
           host.style.cssText = 'position:absolute;inset:0';
           container.append(host);
           ms = MooreSlides.mount(host, { onChange: () => api.markDirty() });
+          // v9.7: text pasted onto a slide (not into a text box) becomes a new text box, like PowerPoint.
+          // Pictures are still handled by the editor itself.
+          document.addEventListener('paste', (e) => {
+            if (ms.editing || ms.presenting) return;
+            const a = document.activeElement;
+            if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return;
+            const items = [...((e.clipboardData && e.clipboardData.items) || [])];
+            if (items.some((i) => i.type.startsWith('image/'))) return;
+            const text = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+            if (!text.trim()) return;
+            e.preventDefault();
+            ms.addText();
+            document.execCommand('insertText', false, text.replace(/\r\n/g, '\n'));
+          });
         },
         async load(bytes, name, ext) {
           const info = await ms.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));

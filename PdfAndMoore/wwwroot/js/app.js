@@ -44,7 +44,9 @@ async function confirmDiscard() {
 }
 
 // Word, Excel and PowerPoint files open in the built-in editors (each in its own window).
-const OFFICE_EXT = ['docx', 'docm', 'dotx', 'xlsx', 'xlsm', 'xls', 'xlsb', 'csv', 'tsv', 'ods', 'pptx', 'pptm', 'ppsx'];
+const OFFICE_EXT = ['docx', 'docm', 'dotx', 'xlsx', 'xlsm', 'xls', 'xlsb', 'csv', 'tsv', 'ods', 'pptx', 'pptm', 'ppsx',
+  // v9.7: plain text files open in the text editor (Open as PDF is one click away there)
+  'txt', 'text', 'md', 'log', 'json', 'xml', 'ini', 'cfg', 'conf', 'yaml', 'yml', 'bat', 'cmd', 'ps1', 'reg'];
 const officeEditable = (f) => host.isHosted && !!f.path && OFFICE_EXT.includes(extOf(f.name));
 
 async function hostCmd(cmd, args = {}) {
@@ -154,6 +156,13 @@ async function signNow() {
     if (!state.doc) return;
   }
   startSigning();
+}
+
+/** A new Word document, spreadsheet, presentation or text file opens in its own window (v9.7). */
+async function newFile(kind) {
+  if (!host.isHosted) return toast('New Word, Excel, PowerPoint and text files open in the PDF and Moore Windows app.');
+  await hostCmd('newOffice', { kind });
+  toast({ word: 'New Word document opened in its own window.', sheet: 'New spreadsheet opened in its own window.', slides: 'New presentation opened in its own window.', text: 'New text file opened in its own window.' }[kind]);
 }
 
 async function openDialog() {
@@ -401,6 +410,7 @@ function menus() {
       ['description', 'New document', () => hostCmd('newOffice', { kind: 'word' })],
       ['table_view', 'New spreadsheet', () => hostCmd('newOffice', { kind: 'sheet' })],
       ['slideshow', 'New presentation', () => hostCmd('newOffice', { kind: 'slides' })],
+      ['notes', 'New text file', () => hostCmd('newOffice', { kind: 'text' })],
       ['edit_document', 'Open a Word, Excel or PowerPoint file…', () => hostCmd('openOffice')],
       ['picture_as_pdf', 'Turn Office files into a PDF…', officeToPdfDialog],
       ['-'],
@@ -1208,13 +1218,23 @@ async function renderStart() {
       el('img', { class: 'app-logo', src: 'img/app.png', alt: '', style: { width: '64px', height: '64px' } }),
       el('div', {}, el('h1', {}, 'PDF and Moore'), el('p', {}, 'Open, edit, sign, fill and convert PDFs, with Claude built in.'))
     ),
+    // v9.7: make a new file of any kind, then type or paste into it
+    el('h2', {}, 'Create new'),
+    el(
+      'div',
+      { class: 'start-tiles' },
+      tile('description', '#2b579a', 'Word document', 'Letters, reports, notes. Paste from anywhere', () => newFile('word')),
+      tile('table_view', '#217346', 'Spreadsheet', 'Lists, logs, budgets. Paste tables straight in', () => newFile('sheet')),
+      tile('slideshow', '#c43e1c', 'Presentation', 'Slides for training and talks', () => newFile('slides')),
+      tile('notes', '#5c6b7a', 'Text file', 'Plain text: .txt, notes, lists, scripts', () => newFile('text')),
+      tile('note_add', '#188038', 'Blank PDF', 'Start from an empty page', newBlank)
+    ),
     el('h2', {}, 'Start something'),
     el(
       'div',
       { class: 'start-tiles' },
       tile('folder_open', '#2bb3d9', 'Open a file', 'PDF, Word, Excel, images, and more', openDialog),
       tile('mail', '#ff5fa2', 'Check email', 'Every account and business address in one inbox', () => setApp('mail')),
-      tile('note_add', '#188038', 'Blank PDF', 'Start from an empty page', newBlank),
       tile('merge', '#9334e6', 'Combine files', 'Merge several files into one PDF', combineDialog),
       tile('auto_awesome', '#e37400', 'Make a form from a description', 'Describe it; get a finished fillable PDF', newFormDialog),
       tile('assignment', '#188038', 'Make a PDF fillable', 'Open a PDF, then add fields', async () => {

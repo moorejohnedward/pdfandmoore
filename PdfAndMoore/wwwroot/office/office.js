@@ -95,7 +95,7 @@
   }
 
   // ---------- the shell ----------
-  const KIND_LABEL = { word: 'Document', sheet: 'Spreadsheet', slides: 'Presentation' };
+  const KIND_LABEL = { word: 'Document', sheet: 'Spreadsheet', slides: 'Presentation', text: 'Text file' };
 
   /**
    * opts: { kind, saveExt(originalExt) -> ext, mount(container), load(bytes, name, ext) -> {notice?},
