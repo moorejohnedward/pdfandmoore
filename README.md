@@ -29,6 +29,25 @@ the newest version from this repository's Releases page. Every new version is bu
 by GitHub Actions when the version number in `PdfAndMoore/PdfAndMoore.csproj` goes up, so you only
 need `Make EXE.bat` for your very first copy (or to build changes on your own PC).
 
+## Several people on one PC (v9.9 and later)
+
+Several people can share PDF and Moore on one Windows account, like profiles in Chrome or Netflix.
+Each person has their own settings, Claude sign-in, Claude API key, email accounts, saved signature, recent files and backups.
+
+- **Who's using PDF and Moore?** shows when the app starts if more than one person is set up, or if anyone has a PIN.
+  Pick your name (and type your PIN). **Add person** makes a new one.
+- **Sign out:** click your round initial at the top right, or **Tools › Sign out (switch person)**. The app closes
+  (asking about unsaved changes, like Word) and goes back to *Who's using?*. Closing every window signs you out too.
+- While you're signed in, double-clicking a PDF opens it as you without asking again.
+- **Tools › Manage people…:** add, rename, add/change/remove a PIN, or remove someone (that deletes only what
+  PDF and Moore saved for them, never their documents). A box there makes *Who's using?* show every time, even with one person.
+- **PINs** are 4 to 8 numbers, saved only as a salted PBKDF2 hash. Five wrong tries locks the PIN for 30 seconds.
+  **Forgot PIN?** resets it, and to keep that person's things private it also signs them out of their Claude sign-in,
+  saved signature, API key and email passwords (their settings, email accounts and recent files stay).
+- A PIN keeps people at the shop out of each other's things inside the app. For the strongest privacy, give each person
+  their own Windows account. Digital IDs live in the Windows account, so everyone on it shares them.
+- Your existing settings, sign-ins and email move into the first profile automatically (named from Settings or your Windows name).
+
 ## Get the app (.exe)
 
 1. **Install Visual Studio 2022** (Community is free). In the installer, tick the
@@ -64,7 +83,7 @@ to the same file. Everything runs on your PC; nothing is uploaded.
   Animations, transitions and video aren't kept when you save.
 - New blank files: **File › New document / New spreadsheet / New presentation**.
 - To turn an Office file into a PDF instead: **File › Turn Office files into a PDF…**, or **Open as PDF** in the editor window.
-- The first time you save over an existing file, the original is backed up to `%LOCALAPPDATA%\PdfAndMoore\Backups`.
+- The first time you save over an existing file, the original is backed up to your own Backups folder (`%LOCALAPPDATA%\PdfAndMoore\Profiles\<id>\Backups`).
 
 ## Tell it what to change (plain English)
 
@@ -130,12 +149,14 @@ That single file is the whole app. On their PC:
 PdfAndMoore.sln
 Make EXE.bat                       Builds Release\PDF and Moore.exe (one file)
 PdfAndMoore/
-├─ App.xaml / App.xaml.cs          Start-up; opens a file passed on the command line
+├─ App.xaml / App.xaml.cs          Start-up: who's using the app, then opens a file passed on the command line; sign out
+├─ ProfileWindows.cs               "Who's using PDF and Moore?", Manage people, name and PIN windows (v9.9)
 ├─ MainWindow.xaml / .xaml.cs      The window: hosts WebView2, asks about unsaved changes
 ├─ ClaudeWebWindow.xaml / .xaml.cs  claude.ai window for signing in with a Claude account
 ├─ Services/
 │  ├─ HostBridge.cs                Message router between the editor UI and Windows
 │  ├─ ClaudeClient.cs              Calls the Claude Messages API and streams the reply
+│  ├─ Profiles.cs                  People on this PC: folders, PIN hashes, sign-in session, sign out (v9.9)
 │  ├─ SettingsStore.cs             Settings + API key encrypted with Windows DPAPI
 │  ├─ RecentFiles.cs               Recent files list
 │  ├─ ClipboardHelper.cs           Copies text/pictures for "Send to Claude"

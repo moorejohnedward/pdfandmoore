@@ -138,7 +138,7 @@ public static class Profiles
         if ((list == null || list.Profiles.Count == 0) && Recover() is { Profiles.Count: > 0 } recovered)
         {
             list = recovered;
-            Save(list);
+            TrySave(list);
         }
         if (list == null || list.Profiles.Count == 0)
         {
@@ -147,7 +147,7 @@ public static class Profiles
             first.Folder = ""; // starts out in the old folders; MoveToOwnFolder moves it when it can
             first.Owner = true;
             list.Profiles.Add(first);
-            Save(list);
+            TrySave(list);
         }
         _count = list.Profiles.Count;
         return list;
@@ -183,6 +183,11 @@ public static class Profiles
             return list;
         }
         catch { return null; }
+    }
+
+    private static void TrySave(ProfileList list)
+    {
+        try { Save(list); } catch { } // can't write right now: the app still starts, and saves next time
     }
 
     public static void Save(ProfileList list)

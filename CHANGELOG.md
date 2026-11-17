@@ -2,6 +2,21 @@
 
 A record of what was built and when (Hawaii time). Newest first.
 
+## v9.9.0 — Monday, November 16, 2026
+**Profiles: several people can share PDF and Moore, each with their own sign-in**
+- **Who's using PDF and Moore?** A start-up screen with a big round initial for each person, like Chrome or Netflix profiles. It shows when more than one person is set up or anyone has a PIN; with just one person and no PIN, the app starts straight up like before.
+- **Each person gets their own:** settings and look, Claude sign-in (claude.ai), Claude API key, email accounts and passwords, saved signature, recent files, backups, and on-device AI download.
+- **Sign out (switch person):** click your round initial at the top right, or Tools › Sign out. Every window closes (asking about unsaved changes first), then *Who's using?* comes back. If the app is open twice (for example after double-clicking a PDF), both copies close.
+- **Stays signed in while it's open:** double-clicking a PDF while someone is signed in opens it as them. Once every window is closed, the next start asks again.
+- **PINs:** 4 to 8 numbers, optional, per person. Saved only as a salted PBKDF2-SHA256 hash (200,000 rounds), never the PIN itself. Five wrong tries locks it for 30 seconds. Changing or removing a PIN, renaming, or removing someone with a PIN needs their PIN.
+- **Forgot PIN?** resets the PIN and, so nobody can use it to get into someone else's things, signs that person out of their Claude sign-in, saved signature, API key and email passwords. Their settings, email accounts and recent files stay.
+- **Manage people** (Tools › Manage people…, or on *Who's using?*): add, rename, PINs, remove (deletes only what PDF and Moore saved for that person, never documents), and "ask every time, even with one person".
+- Window titles show who is signed in (for example "Invoice.pdf - John") when more than one person is set up.
+- New people start with a clean Mail tab (no accounts, everyday folders, Gmail's tabs sorted out of the inbox). John's own profile keeps his accounts, business addresses and rules.
+- **Your existing data moves into the first profile automatically** the first time v9.9 starts (named from Settings or the Windows user name). If an older copy is still open and the move can't happen, nothing breaks: it keeps using the old folders and moves next time.
+- Good to know: a PIN keeps people out of each other's things inside the app; separate Windows accounts are stronger. Digital IDs belong to the Windows account, so everyone on it shares them.
+- New code: `Services/Profiles.cs` (folders, PIN hashing, session, sign-out signal between copies), `ProfileWindows.cs` (Who's using?, Manage people, name/PIN windows), Pam.* styles in `App.xaml`. Settings, mail, recent files, look & feel, WebView2 and backups now use the signed-in person's folder.
+
 ## v9.8.0 — Monday, November 16, 2026
 **Linked to KonaSnap**
 - KonaSnap 2.2 can now hand things to PDF and Moore:

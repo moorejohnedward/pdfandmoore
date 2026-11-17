@@ -130,3 +130,16 @@ Each entry records what was built, why, and the concepts behind it. CHANGELOG.md
 
 **Concepts:** sockets and HTTP from scratch, capability URLs and one-time tokens, constant-time comparison, private address ranges and VPN overlays (Tailscale/WireGuard), Pointer Events and stylus pressure, image thresholding.
 
+## 2026-11-16 (night): v9.9, profiles and signing out
+
+**Problem:** PDF and Moore keeps a lot of personal things: my Claude sign-in, API key, email passwords, my saved signature. At the shop several people could use one PC (and one Windows account), and they would all be signed in as me.
+
+**Built**
+- **Profiles**, like Chrome or Netflix: a *Who's using PDF and Moore?* screen, an optional PIN for each person, **Sign out (switch person)**, and **Manage people**.
+- **Per-person storage:** every place the app saved something (settings, mail, recent files, look & feel, backups) now asks `Profiles` for the signed-in person's folder. The biggest win is giving each person their own **Edge WebView2 user data folder**, which separates browser cookies (the claude.ai sign-in) and localStorage (the saved signature) with no other changes.
+- **Moving existing data:** the first run turns what's already on the PC into the first profile. It moves the WebView2 folder first, because that's the only thing an open copy of the app locks; if that fails it stops before touching anything else and tries again next start.
+- **PINs done properly:** never stored, only a salted PBKDF2-SHA256 hash with 200,000 iterations, compared in constant time, with a lockout after five wrong tries. "Forgot PIN" can't be used to get into someone's accounts, because resetting it also wipes their saved sign-ins and passwords.
+- **Sign-in session across copies of the app:** a small session file lists the process IDs (plus start times, because Windows reuses IDs) of every open copy. Signing out signals each copy through a named Windows event, so they all close, asking about unsaved work first.
+- **Testing:** compiled on GitHub's Windows build server; the rest needs a real Windows PC.
+
+**Concepts:** per-user data isolation, browser profiles and user data folders, password hashing (salts, key stretching, PBKDF2) and constant-time comparison, data migration that can be retried safely, inter-process signaling with named events, process ID reuse.

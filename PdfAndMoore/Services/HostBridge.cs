@@ -286,7 +286,7 @@ public sealed class HostBridge
 
             case "signOut":
                 // Let this reply reach the page first, then close the windows.
-                _window.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => App.SignOut());
+                _ = _window.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => App.SignOut());
                 return null;
 
             case "appVersion":

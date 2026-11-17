@@ -40,8 +40,15 @@ public partial class App : Application
             return;
         }
         Profiles.SignOutRequested += () => Dispatcher.BeginInvoke(() => SignOut(relaunch: false));
-        OpenStartupWindow(e.Args);
-        ShutdownMode = ShutdownMode.OnLastWindowClose;
+        try
+        {
+            OpenStartupWindow(e.Args);
+        }
+        finally
+        {
+            ShutdownMode = ShutdownMode.OnLastWindowClose;
+            if (Windows.Count == 0) Shutdown(); // nothing opened: don't linger in the background
+        }
     }
 
     /// <summary>Opens the first window: a file passed on the command line, a new document, or the PDF editor.</summary>
