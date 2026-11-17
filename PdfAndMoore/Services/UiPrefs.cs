@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace PdfAndMoore.Services;
 
 /// <summary>
-/// Look &amp; feel choices (v9), saved in %APPDATA%\PdfAndMoore\ui.json so the Windows parts
+/// Look &amp; feel choices (v9), saved in ui.json in the signed-in person's folder so the Windows parts
 /// (start-up splash, update window) match the theme the web page uses.
 /// </summary>
 public sealed class UiPrefs
@@ -14,8 +14,7 @@ public sealed class UiPrefs
     /// <summary>"normal", "large" (default) or "xl": how big buttons and text are.</summary>
     public string TextSize { get; set; } = "large";
 
-    private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PdfAndMoore", "ui.json");
+    private static string FilePath => Path.Combine(Profiles.DataDir, "ui.json"); // v9.9: per person
 
     public static UiPrefs Load()
     {

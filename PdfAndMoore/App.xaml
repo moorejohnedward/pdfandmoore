@@ -5,5 +5,116 @@
              Exit="OnExit"
              DispatcherUnhandledException="OnUnhandledException">
     <Application.Resources>
+        <!-- v9.9 Profiles: the dark "Moore" look for the Who's using / Manage people windows (built in ProfileWindows.cs). -->
+        <SolidColorBrush x:Key="Pam.Bg" Color="#0F1B2D"/>
+        <SolidColorBrush x:Key="Pam.Surface" Color="#16253A"/>
+        <SolidColorBrush x:Key="Pam.Surface2" Color="#1E3150"/>
+        <SolidColorBrush x:Key="Pam.Border" Color="#2C4466"/>
+        <SolidColorBrush x:Key="Pam.Text" Color="#EAF1F8"/>
+        <SolidColorBrush x:Key="Pam.Muted" Color="#9FB3C8"/>
+        <SolidColorBrush x:Key="Pam.Error" Color="#FF8A80"/>
+        <LinearGradientBrush x:Key="Pam.Fun" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#FF7A59" Offset="0"/>
+            <GradientStop Color="#FF5FA2" Offset="0.55"/>
+            <GradientStop Color="#9B6BFF" Offset="1"/>
+        </LinearGradientBrush>
+
+        <Style x:Key="Pam.Pill" TargetType="Button">
+            <Setter Property="Padding" Value="18,8"/>
+            <Setter Property="Margin" Value="6,0,0,0"/>
+            <Setter Property="Background" Value="#1E3150"/>
+            <Setter Property="Foreground" Value="#EAF1F8"/>
+            <Setter Property="BorderBrush" Value="#2C4466"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="20" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#2BB3D9"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="Pam.Primary" TargetType="Button" BasedOn="{StaticResource Pam.Pill}">
+            <Setter Property="Background" Value="{StaticResource Pam.Fun}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+
+        <Style x:Key="Pam.Danger" TargetType="Button" BasedOn="{StaticResource Pam.Pill}">
+            <Setter Property="Foreground" Value="#FF8A80"/>
+        </Style>
+
+        <Style x:Key="Pam.Link" TargetType="Button">
+            <Setter Property="Foreground" Value="#2BB3D9"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <TextBlock x:Name="T" Text="{Binding Content, RelativeSource={RelativeSource TemplatedParent}}" Foreground="{TemplateBinding Foreground}" Padding="4,2"/>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="T" Property="TextDecorations" Value="Underline"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- A big person tile on "Who's using PDF and Moore?" -->
+        <Style x:Key="Pam.Tile" TargetType="Button">
+            <Setter Property="Width" Value="150"/>
+            <Setter Property="Height" Value="170"/>
+            <Setter Property="Margin" Value="10"/>
+            <Setter Property="Foreground" Value="#EAF1F8"/>
+            <Setter Property="Background" Value="#16253A"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="#2C4466" BorderThickness="1" CornerRadius="18" Padding="10">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#1E3150"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#FF7A59"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#2BB3D9"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="Pam.Input" TargetType="Control">
+            <Setter Property="Background" Value="#0F1B2D"/>
+            <Setter Property="Foreground" Value="#EAF1F8"/>
+            <Setter Property="BorderBrush" Value="#2C4466"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="FontSize" Value="16"/>
+        </Style>
     </Application.Resources>
 </Application>

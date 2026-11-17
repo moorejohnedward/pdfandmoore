@@ -49,6 +49,20 @@ public sealed class HostBridge
         _phoneSign.SignatureReceived += dataUrl => _window.Dispatcher.BeginInvoke(() => SendEvent("phoneSignature", new { dataUrl }));
     }
 
+    /// <summary>Who is signed in, for the round initial button in the top bar (v9.9).</summary>
+    public static object ProfileInfo()
+    {
+        Profile? p = Profiles.Current;
+        return new
+        {
+            name = p?.Name ?? "",
+            initial = p?.Initial ?? "",
+            color = p?.Color ?? "#FF7A59",
+            hasPin = p?.HasPin ?? false,
+            people = Profiles.Count,
+        };
+    }
+
     /// <summary>Stops anything still listening on the network (called when the window closes).</summary>
     public void Shutdown() => _phoneSign.Stop();
 
@@ -261,6 +275,18 @@ public sealed class HostBridge
 
             case "checkUpdates":
                 _window.ShowUpdates();
+                return null;
+
+            // ---- Profiles (v9.9) ----
+            case "getProfile":
+                return ProfileInfo();
+
+            case "manageProfiles":
+                return _window.ManagePeople();
+
+            case "signOut":
+                // Let this reply reach the page first, then close the windows.
+                _window.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => App.SignOut());
                 return null;
 
             case "appVersion":

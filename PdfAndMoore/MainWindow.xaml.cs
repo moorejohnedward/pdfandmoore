@@ -23,6 +23,7 @@ public partial class MainWindow : Window
     private bool _dirty;
     private bool _closeAfterSave;
     private bool _forceClose;
+    private string? _baseTitle; // the document's title, before " - John"
 
     private readonly string? _startupReadText; // a picture to read the words from (sent by KonaSnap, v9.8)
 
@@ -32,6 +33,7 @@ public partial class MainWindow : Window
         _startupAsPdf = startupAsPdf;
         _startupReadText = readTextFrom;
         InitializeComponent();
+        Title = AppName + Profiles.TitleSuffix; // v9.9: shows who is signed in when several people use the app
         ApplyTheme(UiPrefs.Load().Theme);
         Loaded += async (_, _) => await InitializeEditorAsync();
         Closing += OnClosing;
@@ -168,7 +170,11 @@ public partial class MainWindow : Window
     internal void SetDocumentState(bool dirty, string? title)
     {
         _dirty = dirty;
-        if (!string.IsNullOrWhiteSpace(title)) Title = title;
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            _baseTitle = title;
+            Title = title + Profiles.TitleSuffix;
+        }
         if (!dirty && _closeAfterSave)
         {
             _closeAfterSave = false;
@@ -185,8 +191,21 @@ public partial class MainWindow : Window
         _claudeWindow.ShowBeside(this, hint);
     }
 
+    /// <summary>Tools › Manage people… (v9.9). Returns the signed-in person's details afterwards (a rename shows right away).</summary>
+    internal object ManagePeople()
+    {
+        new ManagePeopleWindow(this).ShowDialog();
+        Profiles.Refresh(Profiles.Load());
+        Title = (_baseTitle ?? AppName) + Profiles.TitleSuffix;
+        return HostBridge.ProfileInfo();
+    }
+
     /// <summary>The save before closing was cancelled, so keep the window open.</summary>
-    internal void CancelPendingClose() => _closeAfterSave = false;
+    internal void CancelPendingClose()
+    {
+        _closeAfterSave = false;
+        App.CancelSignOut();
+    }
 
     /// <summary>Ask about unsaved changes before closing, like Word does.</summary>
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -201,6 +220,7 @@ public partial class MainWindow : Window
         if (answer == MessageBoxResult.Cancel)
         {
             e.Cancel = true;
+            App.CancelSignOut();
         }
         else if (answer == MessageBoxResult.Yes)
         {

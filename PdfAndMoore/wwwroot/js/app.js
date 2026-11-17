@@ -58,6 +58,54 @@ async function hostCmd(cmd, args = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------
+//  Profiles (v9.9): several people can share PDF and Moore, each with their own
+//  settings, Claude sign-in, email and signature. The Windows side does the work.
+// ---------------------------------------------------------------------------
+
+let profile = null;
+
+function showProfile(p) {
+  profile = p;
+  const b = $('#btnProfile');
+  if (!p || !p.name) return b.classList.add('hidden');
+  b.classList.remove('hidden');
+  b.style.background = p.color || '';
+  $('#profileInitial').textContent = p.initial || '?';
+  const label = `Signed in as ${p.name}`;
+  b.title = label + ' (sign out, switch person or manage people)';
+  b.setAttribute('aria-label', label);
+}
+
+async function profileMenu() {
+  const name = (profile && profile.name) || 'you';
+  const choice = await dialog({
+    title: `Signed in as ${name}`,
+    body: el('div', {},
+      el('p', {}, 'Each person who uses PDF and Moore on this PC has their own settings, Claude sign-in, email, saved signature and recent files.'),
+      el('p', { class: 'muted' }, 'Signing out closes PDF and Moore (asking about unsaved changes) and shows "Who\u2019s using PDF and Moore?".')),
+    buttons: [
+      { label: 'Cancel', value: null },
+      { label: 'Manage people…', value: 'manage' },
+      { label: 'Sign out', value: 'signout', primary: true },
+    ],
+  });
+  if (choice === 'manage') managePeople();
+  else if (choice === 'signout') signOut();
+}
+
+async function managePeople() {
+  try {
+    showProfile(await host.hostCommand('manageProfiles'));
+  } catch (e) {
+    toast(e.message || String(e), { error: true });
+  }
+}
+
+function signOut() {
+  hostCmd('signOut');
+}
+
 /** Turn Word / Excel / PowerPoint files into a PDF (instead of editing them). */
 async function officeToPdfDialog() {
   const files = await host.openFiles({ multiple: true });
@@ -499,6 +547,10 @@ function menus() {
       ['verified', 'Sign with digital ID…', protect.signWithDigitalId, '', needDoc],
       ['cleaning_services', 'Remove hidden information…', protect.removeHiddenInfoDialog, '', needDoc],
       ['ink_highlighter', 'Highlight text', () => setTool('highlight'), 'H', needDoc],
+      ['-'],
+      ['#', 'People'],
+      ['group', 'Manage people…', managePeople, ''],
+      ['logout', 'Sign out (switch person)', signOut, ''],
       ['-'],
       ['app_registration', 'Make PDF and Moore my default app…', () => hostCmd('setDefaultApp'), ''],
       ['system_update', 'Check for updates…', () => hostCmd('checkUpdates'), ''],
@@ -1470,6 +1522,8 @@ async function main() {
   $('#btnPrint').addEventListener('click', printCurrent);
   $('#btnSign').addEventListener('click', signNow);
   $('#btnSettings').addEventListener('click', () => openSettings());
+  $('#btnProfile').addEventListener('click', profileMenu);
+  host.hostCommand('getProfile').then(showProfile).catch(() => {});
   $$('#appSwitch button').forEach((b) => b.addEventListener('click', () => setApp(b.dataset.app)));
   window.addEventListener('pam:settings', (e) => openSettings(e.detail || 'look'));
   mail.initMail({

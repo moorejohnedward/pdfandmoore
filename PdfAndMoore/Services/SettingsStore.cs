@@ -44,15 +44,15 @@ public sealed class AppSettings
 }
 
 /// <summary>
-/// Saves settings to %APPDATA%\PdfAndMoore\settings.json.
+/// Saves settings to settings.json in the signed-in person's folder (%APPDATA%\PdfAndMoore\Profiles\&lt;id&gt;).
 /// The Claude API key is encrypted with Windows DPAPI, so only your Windows account can read it.
 /// </summary>
 public sealed class SettingsStore
 {
-    private static readonly string Folder =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PdfAndMoore");
+    // v9.9: each person (profile) has their own folder.
+    private static string Folder => Profiles.DataDir;
 
-    private static readonly string FilePath = Path.Combine(Folder, "settings.json");
+    private static string FilePath => Path.Combine(Folder, "settings.json");
 
     private sealed class StoredSettings
     {

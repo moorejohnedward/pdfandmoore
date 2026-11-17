@@ -6,16 +6,16 @@ using System.Text.Json.Nodes;
 namespace PdfAndMoore.Services;
 
 /// <summary>
-/// Saves mail accounts to %APPDATA%\PdfAndMoore\mail.json.
+/// Saves mail accounts to mail.json in the signed-in person's folder (%APPDATA%\PdfAndMoore\Profiles\&lt;id&gt;).
 /// App passwords are encrypted with Windows DPAPI and are never sent to the web page;
 /// the page only learns whether each account has one ("hasPassword").
 /// </summary>
 public sealed class MailSettingsStore
 {
-    private static readonly string Folder =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PdfAndMoore");
+    // v9.9: each person (profile) has their own mail accounts.
+    private static string Folder => Profiles.DataDir;
 
-    private static readonly string FilePath = Path.Combine(Folder, "mail.json");
+    private static string FilePath => Path.Combine(Folder, "mail.json");
 
     private static readonly JsonSerializerOptions FileJson = new() { WriteIndented = true };
 
@@ -179,8 +179,26 @@ public sealed class MailSettingsStore
         catch (CryptographicException) { return ""; }
     }
 
-    /// <summary>First run: John's accounts, business aliases, signatures and sorting rules. All editable.</summary>
-    public static MailSettings Defaults()
+    /// <summary>
+    /// First run: John's accounts, business aliases, signatures and sorting rules for John's own profile;
+    /// a clean start (no accounts) for everyone else (v9.9). All editable.
+    /// </summary>
+    public static MailSettings Defaults() => Profiles.IsOwner ? JohnsDefaults() : BlankDefaults();
+
+    /// <summary>For someone new: no accounts, a few everyday folders, and Gmail's tabs sorted out of the inbox.</summary>
+    private static MailSettings BlankDefaults() => new()
+    {
+        Folders = { "Business", "School", "Finance", "Travel", "Personal", "Updates", "Social", "Clutter" },
+        Rules =
+        {
+            new SortRule { Match = "category:promotions", Folder = "Clutter" },
+            new SortRule { Match = "category:social", Folder = "Social" },
+            new SortRule { Match = "category:updates", Folder = "Updates" },
+            new SortRule { Match = "category:forums", Folder = "Updates" },
+        },
+    };
+
+    private static MailSettings JohnsDefaults()
     {
         const string phone = "702-283-4536";
         return new MailSettings

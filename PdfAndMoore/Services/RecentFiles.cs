@@ -2,13 +2,12 @@ using System.Text.Json;
 
 namespace PdfAndMoore.Services;
 
-/// <summary>Remembers the last PDFs you opened or saved (%APPDATA%\PdfAndMoore\recent.json).</summary>
+/// <summary>Remembers the last PDFs you opened or saved (recent.json in the signed-in person's folder).</summary>
 public sealed class RecentFiles
 {
     private const int MaxItems = 12;
 
-    private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PdfAndMoore", "recent.json");
+    private static string FilePath => Path.Combine(Profiles.DataDir, "recent.json"); // v9.9: per person
 
     public List<string> Load()
     {

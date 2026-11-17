@@ -10,7 +10,7 @@ namespace PdfAndMoore;
 /// <summary>
 /// A window that edits one Word document, Excel workbook or PowerPoint presentation with the
 /// built-in editors (web pages in wwwroot\office, shown by Edge WebView2). Everything stays on this PC.
-/// Before a file is overwritten the first time, the original is copied to %LOCALAPPDATA%\PdfAndMoore\Backups.
+/// Before a file is overwritten the first time, the original is copied to the signed-in person's Backups folder.
 /// </summary>
 public partial class OfficeEditorWindow : Window
 {
@@ -33,7 +33,7 @@ public partial class OfficeEditorWindow : Window
         _seedPath = seedPath;
         _kind = OfficeTypes.IsKind(kind) ? kind : "word";
         InitializeComponent();
-        Title = (path != null ? Path.GetFileName(path) : "New " + OfficeTypes.Label(_kind)) + " - " + AppName;
+        Title = (path != null ? Path.GetFileName(path) : "New " + OfficeTypes.Label(_kind)) + " - " + AppName + Profiles.TitleSuffix;
         SplashText.Text = path != null ? "Opening " + Path.GetFileName(path) + "…" : "Starting…";
         Loaded += async (_, _) => await StartAsync();
         Closing += OnClosing;
@@ -149,7 +149,7 @@ public partial class OfficeEditorWindow : Window
             {
                 _dirty = Bool(args, "dirty");
                 string? title = Str(args, "title");
-                if (!string.IsNullOrWhiteSpace(title)) Title = title;
+                if (!string.IsNullOrWhiteSpace(title)) Title = title + Profiles.TitleSuffix;
                 if (!_dirty && _closeAfterSave)
                 {
                     _closeAfterSave = false;
@@ -161,6 +161,7 @@ public partial class OfficeEditorWindow : Window
 
             case "cancelClose":
                 _closeAfterSave = false;
+                App.CancelSignOut();
                 return true;
 
             case "print":
@@ -227,7 +228,7 @@ public partial class OfficeEditorWindow : Window
         try
         {
             if (!File.Exists(target) || !_backedUp.Add(target)) return;
-            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PdfAndMoore", "Backups");
+            string dir = Path.Combine(Profiles.LocalDir, "Backups"); // v9.9: per person
             Directory.CreateDirectory(dir);
             File.Copy(target, Path.Combine(dir, $"{DateTime.Now:yyyy-MM-dd HHmmss} {Path.GetFileName(target)}"), overwrite: true);
         }
@@ -257,6 +258,7 @@ public partial class OfficeEditorWindow : Window
         if (answer == MessageBoxResult.Cancel)
         {
             e.Cancel = true;
+            App.CancelSignOut();
         }
         else if (answer == MessageBoxResult.Yes)
         {
