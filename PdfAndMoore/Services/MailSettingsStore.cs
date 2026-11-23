@@ -230,19 +230,9 @@ public sealed class MailSettingsStore
                         },
                     },
                 },
-                new MailAccount
-                {
-                    Email = "moorejohnedward@gmail.com", Name = "Personal", Color = "#2BB3D9",
-                    Identities =
-                    {
-                        new SendIdentity
-                        {
-                            Address = "moorejohnedward@gmail.com", Business = "Personal", Folder = "Personal",
-                            Hints = "family, friends, personal, school, millersville, va",
-                            Signature = $"John Moore\n{phone}",
-                        },
-                    },
-                },
+                // The personal Gmail account isn't written here: this repo is public, so personal
+                // addresses stay out of the code. Add it once in Settings › Email accounts; it's then
+                // kept in mail.json on this PC only.
             },
             Folders = { "KHT", "Dive Moore", "Museum", "Business", "School", "VA & Benefits", "Diving", "Finance", "Travel", "Personal", "Updates", "Social", "fun", "Clutter" },
             // Order matters: first match wins. "label:" matches a Gmail label (and its sub-labels);
